@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tower Defense Kingdom</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: monospace; color: #ccc; }
+  #info { margin-bottom: 8px; font-size: 13px; opacity: 0.7; }
+  #game-container canvas { display: block; }
+  #statusbar { margin-top: 6px; font-size: 12px; opacity: 0.6; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+<div id="info">Click a valid zone to place a turret · P pause · R reset · D debug · E editor</div>
+<div id="game-container"></div>
+<div id="statusbar">x: —, y: —</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

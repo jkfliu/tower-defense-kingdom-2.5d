@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Enemy Animation Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: monospace; padding: 20px; }
+  h1 { margin-bottom: 16px; font-size: 16px; opacity: 0.7; }
+  h2.enemy-title { font-size: 15px; color: #ffd080; margin: 28px 0 12px; border-bottom: 1px solid #444; padding-bottom: 6px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 24px; }
+  .anim-block { background: #2a2a3e; border: 1px solid #444; border-radius: 6px; padding: 12px; width: 220px; flex-shrink: 0; }
+  .anim-block h3 { font-size: 13px; margin-bottom: 4px; color: #adf; }
+  .anim-block p  { font-size: 11px; opacity: 0.5; margin-bottom: 8px; }
+  canvas { display: block; background: #ffffff; border-radius: 3px; }
+  .controls { margin-bottom: 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  label { font-size: 12px; opacity: 0.7; }
+  input[type=range] { width: 120px; }
+  .frame-info { font-size: 11px; opacity: 0.5; margin-top: 4px; }
+  .error { color: red; margin-top: 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Enemy Animation Preview</h1>
+<div class="controls">
+  <label>Speed: <input type="range" id="speed" min="1" max="24" value="8"> <span id="speedVal">8</span> fps</label>
+</div>
+<div id="root"></div>
+
+<script>
+const FRAME_W = 100;
+const FRAME_H = 100;
+const SCALE   = 2;
+
+const ENEMIES = [
+  {
+    name: 'Skeleton',
+    src: 'assets/Skeleton-shadow.png',
+    sheetCols: 8,
+    anims: [
+      { name: 'Idle',    frames: 6 },
+      { name: 'Walk',    frames: 8 },
+      { name: 'Attack1', frames: 6 },
+      { name: 'Attack2', frames: 7 },
+      { name: 'Block',   frames: 4 },
+      { name: 'Hurt',    frames: 4 },
+      { name: 'Death',   frames: 4 },
+    ],
+  },
+  {
+    name: 'Orc',
+    src: 'assets/Orc-shadow.png',
+    sheetCols: 8,
+    anims: [
+      { name: 'Idle',    frames: 6 },
+      { name: 'Walk',    frames: 8 },
+      { name: 'Attack1', frames: 5 },
+      { name: 'Attack2', frames: 6 },
+      { name: 'Hurt',    frames: 3 },
+      { name: 'Death',   frames: 4 },
+    ],
+  },
+];
+
+let fps = 8;
+document.getElementById('speed').addEventListener('input', e => {
+  fps = +e.target.value;
+  document.getElementById('speedVal').textContent = fps;
+});
+
+const root = document.getElementById('root');
+
+for (const enemy of ENEMIES) {
+  const heading = document.createElement('h2');
+  heading.className = 'enemy-title';
+  heading.textContent = enemy.name;
+  root.appendChild(heading);
+
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  root.appendChild(grid);
+
+  const img = new Image();
+  img.src = enemy.src;
+
+  img.onerror = () => {
+    const err = document.createElement('p');
+    err.className = 'error';
+    err.textContent = `Failed to load ${enemy.src} — make sure you are serving via http://localhost:3000`;
+    grid.appendChild(err);
+  };
+
+  img.onload = () => {
+    let startFrame = 0;
+    for (const anim of enemy.anims) {
+      anim.startFrame = startFrame;
+      startFrame += enemy.sheetCols; // each row occupies sheetCols slots
+
+      const block = document.createElement('div');
+      block.className = 'anim-block';
+
+      const title = document.createElement('h3');
+      title.textContent = anim.name;
+
+      const sub = document.createElement('p');
+      sub.textContent = `${anim.frames} frames · start index ${anim.startFrame}`;
+
+      const canvas = document.createElement('canvas');
+      canvas.width  = FRAME_W * SCALE;
+      canvas.height = FRAME_H * SCALE;
+
+      const frameInfo = document.createElement('div');
+      frameInfo.className = 'frame-info';
+      frameInfo.textContent = 'frame 0';
+
+      block.appendChild(title);
+      block.appendChild(sub);
+      block.appendChild(canvas);
+      block.appendChild(frameInfo);
+      grid.appendChild(block);
+
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+
+      let frameIdx = 0;
+      let lastTime = 0;
+
+      (function loop(anim, canvas, ctx, frameInfo) {
+        function draw(ts) {
+          const interval = 1000 / fps;
+          if (ts - lastTime >= interval) {
+            lastTime = ts;
+            const absFrame = anim.startFrame + frameIdx;
+            const srcX = (absFrame % enemy.sheetCols) * FRAME_W;
+            const srcY = Math.floor(absFrame / enemy.sheetCols) * FRAME_H;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, srcX, srcY, FRAME_W, FRAME_H, 0, 0, FRAME_W * SCALE, FRAME_H * SCALE);
+            frameInfo.textContent = `frame ${frameIdx} (abs ${absFrame}) — col ${absFrame % enemy.sheetCols}, row ${Math.floor(absFrame / enemy.sheetCols)}`;
+            frameIdx = (frameIdx + 1) % anim.frames;
+          }
+          requestAnimationFrame(draw);
+        }
+        requestAnimationFrame(draw);
+      })(anim, canvas, ctx, frameInfo);
+    }
+  };
+}
+</script>
+</body>
+</html>

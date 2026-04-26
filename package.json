@@ -1,0 +1,7 @@
+{
+  "name": "tower-defense-kingdom-2.5d",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npx serve . -p 3000"
+  }
+}
