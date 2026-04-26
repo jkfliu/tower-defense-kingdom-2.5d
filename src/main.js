@@ -1,5 +1,6 @@
 import { CANVAS_W, CANVAS_H } from './constants.js';
-import GameScene from './scenes/GameScene.js';
+import CampaignMapScene from './scenes/CampaignMapScene.js';
+import LevelScene from './scenes/LevelScene.js';
 
 const config = {
   type: Phaser.AUTO,
@@ -7,7 +8,7 @@ const config = {
   height: CANVAS_H,
   parent: 'game-container',
   backgroundColor: '#1a1a2e',
-  scene: GameScene,
+  scene: [CampaignMapScene, LevelScene],
   antialias: true,
 };
 

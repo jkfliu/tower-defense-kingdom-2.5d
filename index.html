@@ -6,15 +6,28 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #1a1a2e; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: monospace; color: #ccc; }
-  #info { margin-bottom: 8px; font-size: 13px; opacity: 0.7; }
+  #info { margin-bottom: 6px; font-size: 13px; opacity: 0.7; }
+  #hud { display: flex; gap: 24px; align-items: center; background: #0d1117; border: 1px solid #2a2a4a; border-radius: 4px; padding: 6px 18px; margin-bottom: 6px; font-size: 13px; letter-spacing: 0.04em; }
+  #hud span { opacity: 0.75; }
+  #hud strong { opacity: 1; margin-left: 4px; }
+  .gold { color: #f0c040; }
   #game-container canvas { display: block; }
-  #statusbar { margin-top: 6px; font-size: 12px; opacity: 0.6; letter-spacing: 0.05em; }
+  #statusbar { margin-top: 6px; font-size: 12px; letter-spacing: 0.05em; min-height: 18px; }
+  #statusbar.valid   { color: #f0c040; opacity: 1; }
+  #statusbar.invalid { color: #ff6666; opacity: 1; }
+  #statusbar.neutral { color: #ccc;    opacity: 0.5; }
 </style>
 </head>
 <body>
-<div id="info">Click a valid zone to place a turret · P pause · R reset · D debug · E editor</div>
+<div id="info">Click valid zone to place turret · Start Wave to begin · P pause · R restart level · D debug · E editor</div>
+<div id="hud">
+  <span>Wave <strong id="hud-wave">— / —</strong></span>
+  <span>Lives <strong id="hud-lives">—</strong></span>
+  <span>Score <strong id="hud-score">0</strong></span>
+  <span>Gold <strong id="hud-gold" class="gold">—</strong></span>
+</div>
 <div id="game-container"></div>
-<div id="statusbar">x: —, y: —</div>
+<div id="statusbar" class="neutral"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <script type="module" src="src/main.js"></script>

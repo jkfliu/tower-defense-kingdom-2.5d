@@ -1,5 +1,18 @@
 import { bgPt } from '../constants.js';
 
+export const CAMPAIGN_LEVELS = [
+  { id: 0, name: 'Forest Outpost',  mx: 180, my: 155,  icon: 'forest',   startGold: 100, waves: 3, enemiesPerWave: 8,  description: 'Goblins raid from the treeline. Hold the outpost at all costs.' },
+  { id: 1, name: 'Goblin Warren',   mx: 180, my: 290,  icon: 'forest',   startGold: 110, waves: 3, enemiesPerWave: 10, description: 'The goblins have dug in deep. Root them out before they multiply.' },
+  { id: 2, name: 'Mudflats',        mx: 180, my: 430,  icon: 'river',    startGold: 120, waves: 3, enemiesPerWave: 10, description: 'Orcs wade through the marshes. Slow them in the mud or be overwhelmed.' },
+  { id: 3, name: 'Stoneback Ridge', mx: 180, my: 570,  icon: 'mountain', startGold: 135, waves: 4, enemiesPerWave: 10, description: 'Trolls hurl boulders from the ridgeline. Reach them before they reach you.' },
+  { id: 4, name: 'Troll Bridge',    mx: 180, my: 710,  icon: 'mountain', startGold: 150, waves: 4, enemiesPerWave: 12, description: 'A horde crosses the old stone bridge. Destroy it or hold the line.' },
+  { id: 5, name: 'Shadowfen',       mx: 180, my: 860,  icon: 'village',  startGold: 165, waves: 4, enemiesPerWave: 12, description: 'Dark Elves emerge from the fen at dusk. They move fast — be ready.' },
+  { id: 6, name: 'Ashwood',         mx: 370, my: 930,  icon: 'village',  startGold: 180, waves: 5, enemiesPerWave: 12, description: 'The forest burns. Demons fan the flames while dark elves harry your flanks.' },
+  { id: 7, name: 'Cursed Ruins',    mx: 560, my: 980,  icon: 'volcano',  startGold: 200, waves: 5, enemiesPerWave: 14, description: 'Demons have consecrated the ruins. Purge them or lose the east forever.' },
+  { id: 8, name: 'Demon Gate',      mx: 750, my: 1020, icon: 'volcano',  startGold: 220, waves: 5, enemiesPerWave: 14, description: 'The gate tears open. Wave after wave pours through. Hold until dawn.' },
+  { id: 9, name: 'Volcano Summit',  mx: 940, my: 1040, icon: 'volcano',  startGold: 250, waves: 5, enemiesPerWave: 16, description: "The demon lord commands from the volcano's peak. End this — now." },
+];
+
 export const LEVELS = [
   {
     id: 'level-1',
@@ -71,6 +84,9 @@ export const LEVELS = [
       bgPt(837, 481),
       ]
     ],
+    startGold: 100,
+    waves: 3,
+    enemiesPerWave: 8,
     spawnDelay: { min: 1500, max: 3500 },
     spawnPool: [
       { type: 'skeleton', weight: 3 },

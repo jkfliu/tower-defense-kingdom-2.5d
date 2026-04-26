@@ -8,6 +8,7 @@ export const ENEMY_TYPES = {
     displayScale: 2.0,
     speed: { base: 60, variance: 30 },
     hp: 100,
+    goldReward: 10,
     animations: [
       { key: 'idle',    row: 0, frames: 6, frameRate: 8,  repeat: -1 },
       { key: 'walk',    row: 1, frames: 8, frameRate: 10, repeat: -1 },
@@ -27,6 +28,7 @@ export const ENEMY_TYPES = {
     displayScale: 2.0,
     speed: { base: 40, variance: 20 },
     hp: 200,
+    goldReward: 20,
     animations: [
       { key: 'idle',    row: 0, frames: 6, frameRate: 8,  repeat: -1 },
       { key: 'walk',    row: 1, frames: 8, frameRate: 10, repeat: -1 },

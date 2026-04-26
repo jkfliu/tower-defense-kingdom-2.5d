@@ -1,6 +1,9 @@
 export const CANVAS_W = 900;
 export const CANVAS_H = 560;
 
+export const DEFAULT_LIVES = 3;
+export const DEFAULT_WAVES = 3;
+
 const NATIVE_W = 1072;
 const NATIVE_H = 904;
 export const scaleX = CANVAS_W / NATIVE_W;
