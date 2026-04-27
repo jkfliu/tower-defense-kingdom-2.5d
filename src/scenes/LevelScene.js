@@ -3,6 +3,11 @@ import { LEVELS } from '../data/levels.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
 
+const SELL_HIT_R   = 28;
+const WP_HIT_R     = 30;
+const TILE_W       = 32;
+const TILE_H       = 18;
+
 export default class LevelScene extends Phaser.Scene {
   constructor() { super('LevelScene'); }
 
@@ -38,7 +43,7 @@ export default class LevelScene extends Phaser.Scene {
 
     const bg = this.add.image(0, 0, 'bg').setOrigin(0, 0);
     bg.setDisplaySize(CANVAS_W, CANVAS_H);
-    bg.setDepth(-1);
+    bg.setDepth(0);
 
     // Game entity arrays
     this.turrets    = [];
@@ -65,30 +70,30 @@ export default class LevelScene extends Phaser.Scene {
     this._overButton     = false;
     this._restartConfirm = null;
 
-    this.debugGraphics   = this.add.graphics().setDepth(50);
-    this.entityGraphics  = this.add.graphics().setDepth(9999);
-    this.previewGraphics = this.add.graphics().setDepth(200);
+    this.debugGraphics   = this.add.graphics().setDepth(10);
+    this.entityGraphics  = this.add.graphics().setDepth(700);
+    this.previewGraphics = this.add.graphics().setDepth(800);
 
     this._redrawDebug();
 
     // --- Overlay layer (gameover / victory / between) ---
-    this.overlayGraphics = this.add.graphics().setDepth(1000);
+    this.overlayGraphics = this.add.graphics().setDepth(1200);
     this.overlayText     = this.add.text(CANVAS_W / 2, CANVAS_H / 2 - 20, '', {
       fontSize: '42px', fontFamily: 'Cinzel', color: '#ffffff',
       stroke: '#000000', strokeThickness: 6,
-    }).setOrigin(0.5).setDepth(1001).setVisible(false);
+    }).setOrigin(0.5).setDepth(1300).setVisible(false);
     this.overlaySubText  = this.add.text(CANVAS_W / 2, CANVAS_H / 2 + 36, '', {
       fontSize: '18px', fontFamily: 'Cinzel', color: '#cccccc',
       stroke: '#000000', strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(1001).setVisible(false);
+    }).setOrigin(0.5).setDepth(1300).setVisible(false);
 
     // --- Buttons ---
-    this.startWaveBtn = this._makeButton(CANVAS_W / 2, CANVAS_H - 36, '▶  Start Wave 1', 'gold', 500, () => this._startWave());
+    this.startWaveBtn = this._makeButton(CANVAS_W / 2, CANVAS_H - 36, '▶  Start Wave 1', 'gold', 900, () => this._startWave());
 
-    this.backToMapBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 90, '← Back to Map', 'dark', 1002, () => this._goToMap());
+    this.backToMapBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 90, '← Back to Map', 'dark', 1300, () => this._goToMap());
     this.backToMapBtn.setVisible(false);
 
-    this.quitBtn = this._makeButton(8, 8, '← Map', 'dark', 300, () => this.scene.start('CampaignMapScene', {
+    this.quitBtn = this._makeButton(8, 8, '← Map', 'dark', 900, () => this.scene.start('CampaignMapScene', {
       currentLevel: this._currentLevel,
       justCompletedLevel: -1,
       reveal: false,
@@ -98,7 +103,7 @@ export default class LevelScene extends Phaser.Scene {
     this.pauseText = this.add.text(CANVAS_W / 2, CANVAS_H / 2, 'PAUSED', {
       fontSize: '48px', fontFamily: 'Cinzel', color: '#ffffff',
       stroke: '#000000', strokeThickness: 6,
-    }).setOrigin(0.5).setVisible(false).setDepth(100);
+    }).setOrigin(0.5).setVisible(false).setDepth(1100);
 
     this.debug = false;
     this.debugGraphics.setVisible(false);
@@ -107,7 +112,7 @@ export default class LevelScene extends Phaser.Scene {
     this.editorText     = this.add.text(8, 8, 'EDITOR', {
       fontSize: '13px', fontFamily: 'Cinzel', color: '#00ff88',
       stroke: '#000000', strokeThickness: 3,
-    }).setVisible(false).setDepth(200);
+    }).setVisible(false).setDepth(1100);
 
     // _drag: { type: 'path', idx } | { type: 'zone', zoneIdx, vertIdx }
     this._drag          = null;
@@ -243,6 +248,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _showOverlay(title, sub, color = '#ffffff', showBackBtn = false) {
+    this.entityGraphics.clear();
     this.overlayGraphics.clear();
     this.overlayGraphics.fillStyle(0x000000, 0.65);
     this.overlayGraphics.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -341,13 +347,23 @@ export default class LevelScene extends Phaser.Scene {
     }
   }
 
+  _getPlacementState(x, y) {
+    const allTypes  = Object.values(TURRET_TYPES);
+    const minSpace  = Math.min(...allTypes.map(t => t.minSpacing));
+    const minCost   = Math.min(...allTypes.map(t => t.cost));
+    const inZone    = this.levelConfig.placementZones.some(z => this._pointInPolygon(x, y, z));
+    const tooClose  = this.waypoints.some(wp => Math.hypot(x - wp.x, y - wp.y) < WP_HIT_R)
+                    || this.turrets.some(t  => Math.hypot(x - t.cx, y - t.cy) < minSpace);
+    const canAfford = this.gold >= minCost;
+    return { inZone, tooClose, canAfford, isValid: inZone && !tooClose && canAfford, minCost, allTypes };
+  }
+
   _drawPlacementPreview(x, y) {
     this.previewGraphics.clear();
 
     if (this.phase === 'gameover' || this.phase === 'victory') return;
 
     // Tower hover — show its range ring
-    const SELL_HIT_R = 28;
     for (const t of this.turrets) {
       if (Math.hypot(x - t.cx, y - t.cy) < SELL_HIT_R) {
         const def = TURRET_TYPES[t.type];
@@ -358,22 +374,13 @@ export default class LevelScene extends Phaser.Scene {
       }
     }
 
-    const zones    = this.levelConfig.placementZones;
-    const allTypes   = Object.values(TURRET_TYPES);
-    const minSpace   = Math.min(...allTypes.map(t => t.minSpacing));
-    const minCost    = Math.min(...allTypes.map(t => t.cost));
-    const inZone     = zones.some(z => this._pointInPolygon(x, y, z));
-    const tooClose   = this.waypoints.some(wp => Math.hypot(x - wp.x, y - wp.y) < 30)
-                     || this.turrets.some(t => Math.hypot(x - t.cx, y - t.cy) < minSpace);
-    const canAfford  = this.gold >= minCost;
-    const isValid    = inZone && !tooClose && canAfford;
+    const { inZone, tooClose, canAfford, isValid, allTypes } = this._getPlacementState(x, y);
 
-    const tileW = 32, tileH = 18;
     const fillAlpha = isValid ? 0.35 : (inZone ? 0.35 : 0.15);
     this.previewGraphics.fillStyle(isValid ? 0x00ff88 : 0xff4444, fillAlpha);
-    this.previewGraphics.fillEllipse(x, y, tileW * 2, tileH * 2);
+    this.previewGraphics.fillEllipse(x, y, TILE_W * 2, TILE_H * 2);
     this.previewGraphics.lineStyle(1, isValid ? 0x00ff88 : 0xff4444, isValid ? 0.7 : (inZone ? 0.7 : 0.3));
-    this.previewGraphics.strokeEllipse(x, y, tileW * 2, tileH * 2);
+    this.previewGraphics.strokeEllipse(x, y, TILE_W * 2, TILE_H * 2);
 
     if (isValid) {
       const defaultRange = allTypes[0].range;
@@ -502,7 +509,7 @@ export default class LevelScene extends Phaser.Scene {
     const W = 280, H = 110;
     const rx = (CANVAS_W - W) / 2, ry = (CANVAS_H - H) / 2;
 
-    const gfx = this.add.graphics().setDepth(1100);
+    const gfx = this.add.graphics().setDepth(1400);
     gfx.fillStyle(0x000000, 0.6);
     gfx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     gfx.fillStyle(0x0d1117, 1);
@@ -512,13 +519,13 @@ export default class LevelScene extends Phaser.Scene {
 
     const msg = this.add.text(CANVAS_W / 2, ry + 28, 'Restart level?', {
       fontSize: '16px', fontFamily: 'Cinzel', color: '#cccccc',
-    }).setOrigin(0.5).setDepth(1101);
+    }).setOrigin(0.5).setDepth(1401);
 
-    const yesBtn = this._makeButton(CANVAS_W / 2 - 54, ry + H - 28, 'Restart', 'gold', 1101, () => {
+    const yesBtn = this._makeButton(CANVAS_W / 2 - 54, ry + H - 28, 'Restart', 'gold', 1401, () => {
       this._hideRestartConfirm();
       this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel });
     }, { shadow: false });
-    const noBtn = this._makeButton(CANVAS_W / 2 + 54, ry + H - 28, 'Cancel', 'dark', 1101, () => {
+    const noBtn = this._makeButton(CANVAS_W / 2 + 54, ry + H - 28, 'Cancel', 'dark', 1401, () => {
       this._hideRestartConfirm();
     }, { shadow: false });
 
@@ -609,7 +616,6 @@ export default class LevelScene extends Phaser.Scene {
     }
 
     // Hit-test existing turrets first — click on a tower to sell it
-    const SELL_HIT_R = 28;
     for (const t of this.turrets) {
       if (Math.hypot(pointer.x - t.cx, pointer.y - t.cy) < SELL_HIT_R) {
         this._openSellPopup(t, pointer.x, pointer.y);
@@ -617,21 +623,8 @@ export default class LevelScene extends Phaser.Scene {
       }
     }
 
-    const allTypes = Object.values(TURRET_TYPES);
-    const zones    = this.levelConfig.placementZones;
-    const inZone   = zones.some(z => this._pointInPolygon(pointer.x, pointer.y, z));
-    if (!inZone) return;
-
-    for (const wp of this.waypoints) {
-      if (Math.hypot(pointer.x - wp.x, pointer.y - wp.y) < 30) return;
-    }
-    const minSpace = Math.min(...allTypes.map(t => t.minSpacing));
-    for (const t of this.turrets) {
-      if (Math.hypot(pointer.x - t.cx, pointer.y - t.cy) < minSpace) return;
-    }
-
-    const minCost = Math.min(...allTypes.map(t => t.cost));
-    if (this.gold < minCost) return;
+    const { inZone, tooClose, canAfford } = this._getPlacementState(pointer.x, pointer.y);
+    if (!inZone || tooClose || !canAfford) return;
 
     this._drawPlacementPreview(pointer.x, pointer.y);
     this._openTowerPopup(pointer.x, pointer.y);
@@ -646,7 +639,7 @@ export default class LevelScene extends Phaser.Scene {
     const px = Math.min(Math.max(x - totalW / 2, 4), CANVAS_W - totalW - 4);
     const py = Math.max(y - totalH - 12, 4);
 
-    const gfx = this.add.graphics().setDepth(600);
+    const gfx = this.add.graphics().setDepth(1000);
     gfx.fillStyle(0x0d1117, 0.92);
     gfx.fillRoundedRect(px, py, totalW, totalH, 6);
     gfx.lineStyle(1, 0x2a2a4a, 1);
@@ -654,62 +647,51 @@ export default class LevelScene extends Phaser.Scene {
 
     const title = this.add.text(px + totalW / 2, py + pad, 'Choose tower', {
       fontSize: '11px', fontFamily: 'Cinzel', color: '#888888',
-    }).setOrigin(0.5, 0).setDepth(601);
+    }).setOrigin(0.5, 0).setDepth(1001);
 
-    const cards = [];
-    types.forEach((def, i) => {
+    const cards = types.map((def, i) => {
       const cx = px + pad + i * (cardW + gap);
       const cy = py + pad + 18;
-      const canAfford = this.gold >= def.cost;
-
-      const cardGfx = this.add.graphics().setDepth(601);
-      cardGfx.fillStyle(canAfford ? 0x1a2a1a : 0x2a1a1a, 1);
-      cardGfx.fillRoundedRect(cx, cy, cardW, cardH, 4);
-      cardGfx.lineStyle(1, canAfford ? 0x44aa44 : 0x663333, 1);
-      cardGfx.strokeRoundedRect(cx, cy, cardW, cardH, 4);
-
-      const icon = this.add.image(cx + cardW / 2, cy + 28, `turret_${def.key}`, def.frameIndex)
-        .setScale(def.displayScale * 0.55)
-        .setDepth(602)
-        .setAlpha(canAfford ? 1 : 0.4);
-
-      const nameText = this.add.text(cx + cardW / 2, cy + 54, def.label ?? def.key, {
-        fontSize: '11px', fontFamily: 'Cinzel',
-        color: canAfford ? '#ccffcc' : '#996666',
-      }).setOrigin(0.5, 0).setDepth(602);
-
-      const costText = this.add.text(cx + cardW / 2, cy + 70, `${def.cost}g`, {
-        fontSize: '13px', fontFamily: 'Cinzel',
-        color: canAfford ? '#f0c040' : '#664444',
-      }).setOrigin(0.5, 0).setDepth(602);
-
-      const hitZone = this.add.zone(cx, cy, cardW, cardH).setOrigin(0, 0).setDepth(602).setInteractive({ useHandCursor: canAfford });
-      if (canAfford) {
-        hitZone.on('pointerdown', () => {
-          this._closeTowerPopup();
-          this.previewGraphics.clear();
-          this._placeTower(x, y, def.key);
-        });
-        hitZone.on('pointerover', () => {
-          cardGfx.clear();
-          cardGfx.fillStyle(0x224422, 1);
-          cardGfx.fillRoundedRect(cx, cy, cardW, cardH, 4);
-          cardGfx.lineStyle(1, 0x66cc66, 1);
-          cardGfx.strokeRoundedRect(cx, cy, cardW, cardH, 4);
-        });
-        hitZone.on('pointerout', () => {
-          cardGfx.clear();
-          cardGfx.fillStyle(0x1a2a1a, 1);
-          cardGfx.fillRoundedRect(cx, cy, cardW, cardH, 4);
-          cardGfx.lineStyle(1, 0x44aa44, 1);
-          cardGfx.strokeRoundedRect(cx, cy, cardW, cardH, 4);
-        });
-      }
-
-      cards.push({ cardGfx, icon, nameText, costText, hitZone });
+      return this._makeCardUI(def, cx, cy, cardW, cardH, x, y);
     });
 
     this._towerPopup = { x, y, gfx, title, cards };
+  }
+
+  _makeCardUI(def, cx, cy, cardW, cardH, placeX, placeY) {
+    const canAfford = this.gold >= def.cost;
+
+    const cardGfx = this.add.graphics().setDepth(1001);
+    const drawCard = (hovered) => {
+      cardGfx.clear();
+      cardGfx.fillStyle(hovered ? 0x224422 : (canAfford ? 0x1a2a1a : 0x2a1a1a), 1);
+      cardGfx.fillRoundedRect(cx, cy, cardW, cardH, 4);
+      cardGfx.lineStyle(1, hovered ? 0x66cc66 : (canAfford ? 0x44aa44 : 0x663333), 1);
+      cardGfx.strokeRoundedRect(cx, cy, cardW, cardH, 4);
+    };
+    drawCard(false);
+
+    const icon = this.add.image(cx + cardW / 2, cy + 28, `turret_${def.key}`, def.frameIndex)
+      .setScale(def.displayScale * 0.55).setDepth(1002).setAlpha(canAfford ? 1 : 0.4);
+
+    const nameText = this.add.text(cx + cardW / 2, cy + 54, def.label ?? def.key, {
+      fontSize: '11px', fontFamily: 'Cinzel',
+      color: canAfford ? '#ccffcc' : '#996666',
+    }).setOrigin(0.5, 0).setDepth(1002);
+
+    const costText = this.add.text(cx + cardW / 2, cy + 70, `${def.cost}g`, {
+      fontSize: '13px', fontFamily: 'Cinzel',
+      color: canAfford ? '#f0c040' : '#664444',
+    }).setOrigin(0.5, 0).setDepth(1002);
+
+    const hitZone = this.add.zone(cx, cy, cardW, cardH).setOrigin(0, 0).setDepth(1002).setInteractive({ useHandCursor: canAfford });
+    if (canAfford) {
+      hitZone.on('pointerdown', () => { this._closeTowerPopup(); this.previewGraphics.clear(); this._placeTower(placeX, placeY, def.key); });
+      hitZone.on('pointerover',  () => drawCard(true));
+      hitZone.on('pointerout',   () => drawCard(false));
+    }
+
+    return { cardGfx, icon, nameText, costText, hitZone };
   }
 
   _openSellPopup(turret, px, py) {
@@ -720,7 +702,7 @@ export default class LevelScene extends Phaser.Scene {
     const ox = Math.min(Math.max(px - cardW / 2, 4), CANVAS_W - cardW - 4);
     const oy = Math.max(py - cardH - 12, 4);
 
-    const gfx = this.add.graphics().setDepth(600);
+    const gfx = this.add.graphics().setDepth(1000);
     gfx.fillStyle(0x0d1117, 0.92);
     gfx.fillRoundedRect(ox, oy, cardW, cardH, 6);
     gfx.lineStyle(1, 0x4a2a0a, 1);
@@ -728,17 +710,17 @@ export default class LevelScene extends Phaser.Scene {
 
     const title = this.add.text(ox + cardW / 2, oy + pad, def.label ?? def.key, {
       fontSize: '11px', fontFamily: 'Cinzel', color: '#aaaaaa',
-    }).setOrigin(0.5, 0).setDepth(601);
+    }).setOrigin(0.5, 0).setDepth(1001);
 
     const icon = this.add.image(ox + cardW / 2, oy + pad + 18 + 16, `turret_${def.key}`, def.frameIndex)
       .setScale(def.displayScale * 0.5)
-      .setDepth(602);
+      .setDepth(1002);
 
     const refundText = this.add.text(ox + cardW / 2, oy + 82, `Sell for ${refund}g`, {
       fontSize: '11px', fontFamily: 'Cinzel', color: '#f0c040',
-    }).setOrigin(0.5, 0).setDepth(602);
+    }).setOrigin(0.5, 0).setDepth(1002);
 
-    const sellBtn = this._makeButton(ox + cardW / 2, oy + cardH - 20, 'Sell Tower', 'dark', 602, () => {
+    const sellBtn = this._makeButton(ox + cardW / 2, oy + cardH - 20, 'Sell Tower', 'dark', 1002, () => {
       this._closeTowerPopup();
       this._sellTower(turret);
     }, { shadow: false });
@@ -978,7 +960,7 @@ export default class LevelScene extends Phaser.Scene {
         t.aimAngle = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
         const sprite = this.add.image(t.cx, t.cy, 'arrow');
         sprite.setScale(1.125);
-        sprite.setDepth(500);
+        sprite.setDepth(600);
         this.bullets.push({
           x: t.cx, y: t.cy,
           targetId: nearest.id,
