@@ -25,6 +25,10 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   create(data = {}) {
+    document.getElementById('info').style.display      = '';
+    document.getElementById('hud').style.display       = '';
+    document.getElementById('statusbar').style.display = '';
+
     // Support levelId passed from MapScene; fall back to level 0
     const levelId = data.levelId ?? 0;
     this._currentLevel = data.currentLevel ?? levelId; // campaign progress
@@ -57,7 +61,9 @@ export default class LevelScene extends Phaser.Scene {
 
     this.waypoints = this.levelConfig.waypoints;
 
-    this._towerPopup = null; // { x, y, cards: [...Text] } or null
+    this._towerPopup     = null; // { x, y, cards: [...Text] } or null
+    this._overButton     = false;
+    this._restartConfirm = null;
 
     this.debugGraphics   = this.add.graphics().setDepth(50);
     this.entityGraphics  = this.add.graphics().setDepth(9999);
@@ -68,47 +74,29 @@ export default class LevelScene extends Phaser.Scene {
     // --- Overlay layer (gameover / victory / between) ---
     this.overlayGraphics = this.add.graphics().setDepth(1000);
     this.overlayText     = this.add.text(CANVAS_W / 2, CANVAS_H / 2 - 20, '', {
-      fontSize: '42px', fontFamily: 'monospace', color: '#ffffff',
+      fontSize: '42px', fontFamily: 'Cinzel', color: '#ffffff',
       stroke: '#000000', strokeThickness: 6,
     }).setOrigin(0.5).setDepth(1001).setVisible(false);
     this.overlaySubText  = this.add.text(CANVAS_W / 2, CANVAS_H / 2 + 36, '', {
-      fontSize: '18px', fontFamily: 'monospace', color: '#cccccc',
+      fontSize: '18px', fontFamily: 'Cinzel', color: '#cccccc',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(1001).setVisible(false);
 
-    // --- Start Wave button (Phaser DOM) ---
-    this.startWaveBtn = this.add.text(CANVAS_W / 2, CANVAS_H - 36, '▶  Start Wave 1', {
-      fontSize: '18px', fontFamily: 'monospace', color: '#111111',
-      backgroundColor: '#f0c040', padding: { x: 18, y: 8 },
-    }).setOrigin(0.5).setDepth(500).setInteractive({ useHandCursor: true });
-    this.startWaveBtn.on('pointerdown', () => this._startWave());
-    this.startWaveBtn.on('pointerover',  () => this.startWaveBtn.setStyle({ backgroundColor: '#ffe566' }));
-    this.startWaveBtn.on('pointerout',   () => this.startWaveBtn.setStyle({ backgroundColor: '#f0c040' }));
+    // --- Buttons ---
+    this.startWaveBtn = this._makeButton(CANVAS_W / 2, CANVAS_H - 36, '▶  Start Wave 1', 'gold', 500, () => this._startWave());
 
-    // "Back to Map" button — shown on gameover/victory overlay
-    this.backToMapBtn = this.add.text(CANVAS_W / 2, CANVAS_H / 2 + 90, '← Back to Map', {
-      fontSize: '15px', fontFamily: 'monospace', color: '#cccccc',
-      backgroundColor: '#222244', padding: { x: 14, y: 6 },
-    }).setOrigin(0.5).setDepth(1002).setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    this.backToMapBtn.on('pointerdown', () => this._goToMap());
-    this.backToMapBtn.on('pointerover',  () => this.backToMapBtn.setStyle({ backgroundColor: '#333366' }));
-    this.backToMapBtn.on('pointerout',   () => this.backToMapBtn.setStyle({ backgroundColor: '#222244' }));
+    this.backToMapBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 90, '← Back to Map', 'dark', 1002, () => this._goToMap());
+    this.backToMapBtn.setVisible(false);
 
-    // "Quit to Map" button — always visible in top-left during play
-    this.quitBtn = this.add.text(8, 8, '← Map', {
-      fontSize: '12px', fontFamily: 'monospace', color: '#aaaaaa',
-      backgroundColor: '#111122', padding: { x: 8, y: 4 },
-    }).setDepth(300).setInteractive({ useHandCursor: true });
-    this.quitBtn.on('pointerdown', () => this.scene.start('CampaignMapScene', {
+    this.quitBtn = this._makeButton(8, 8, '← Map', 'dark', 300, () => this.scene.start('CampaignMapScene', {
       currentLevel: this._currentLevel,
       justCompletedLevel: -1,
       reveal: false,
-    }));
+    }), { origin: 0 });
 
     this.paused = false;
     this.pauseText = this.add.text(CANVAS_W / 2, CANVAS_H / 2, 'PAUSED', {
-      fontSize: '48px', fontFamily: 'monospace', color: '#ffffff',
+      fontSize: '48px', fontFamily: 'Cinzel', color: '#ffffff',
       stroke: '#000000', strokeThickness: 6,
     }).setOrigin(0.5).setVisible(false).setDepth(100);
 
@@ -117,7 +105,7 @@ export default class LevelScene extends Phaser.Scene {
 
     this.editorMode     = false;
     this.editorText     = this.add.text(8, 8, 'EDITOR', {
-      fontSize: '13px', fontFamily: 'monospace', color: '#00ff88',
+      fontSize: '13px', fontFamily: 'Cinzel', color: '#00ff88',
       stroke: '#000000', strokeThickness: 3,
     }).setVisible(false).setDepth(200);
 
@@ -138,7 +126,8 @@ export default class LevelScene extends Phaser.Scene {
         this._redrawDebug();
       }
 
-      if (!this.editorMode) this._drawPlacementPreview(p.x, p.y);
+      if (this._towerPopup) this._drawPlacementPreview(this._towerPopup.x, this._towerPopup.y);
+      else this._drawPlacementPreview(p.x, p.y);
     });
 
     this.input.on('pointerout', () => {
@@ -167,24 +156,32 @@ export default class LevelScene extends Phaser.Scene {
       if (this.phase === 'victory' || this.phase === 'gameover') {
         this._goToMap();
       } else {
-        this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel });
+        this._showRestartConfirm();
       }
     });
     this.input.keyboard.on('keydown-P', () => {
       if (this.phase === 'gameover' || this.phase === 'victory') return;
       this.paused = !this.paused;
       this.pauseText.setVisible(this.paused);
+      this._setStatusBar(this.paused ? 'Game Paused' : 'Game Resumed', 'valid');
     });
     this.input.keyboard.on('keydown-D', () => {
       this.debug = !this.debug;
-      this.debugGraphics.setVisible(this.debug);
+      this.debugGraphics.setVisible(this.debug || this.editorMode);
+      this._redrawDebug();
+      this._setStatusBar(this.debug ? 'Debug Mode On' : 'Debug Mode Off', 'valid');
+      document.getElementById('info-debug').classList.toggle('info-active', this.debug);
     });
     this.input.keyboard.on('keydown-E', () => {
       this.editorMode = !this.editorMode;
       this.editorText.setVisible(this.editorMode);
-      if (this.editorMode && !this.debug) {
-        this.debug = true;
-        this.debugGraphics.setVisible(true);
+      this.debugGraphics.setVisible(this.debug || this.editorMode);
+      document.getElementById('info-editor').classList.toggle('info-active', this.editorMode);
+      if (this.editorMode) {
+        console.log('%c EDITOR MODE ON — open DevTools with F12 (Win) or Cmd+Option+I (Mac) to see waypoint/zone output', 'background:#1a2a1a;color:#00ff88;padding:4px 8px;font-weight:bold;');
+        this._setStatusBar('Editor Mode On — open DevTools (F12 / Cmd+Option+I) to see output', 'valid');
+      } else {
+        this._setStatusBar('Editor Mode Off', 'valid');
       }
       this._drag = null;
       this._redrawDebug();
@@ -331,10 +328,10 @@ export default class LevelScene extends Phaser.Scene {
       this.debugGraphics.lineStyle(1, 0x00ff88, 0.5);
       this.debugGraphics.strokePoints(zone, true);
 
-      if (this.editorMode) {
+      if (this.debug || this.editorMode) {
         for (let vi = 0; vi < zone.length; vi++) {
           const { x, y } = zone[vi];
-          const isSelected = this._drag && this._drag.zoneIdx === zi && this._drag.vertIdx === vi;
+          const isSelected = this.editorMode && this._drag && this._drag.zoneIdx === zi && this._drag.vertIdx === vi;
           this.debugGraphics.fillStyle(isSelected ? 0xffff00 : 0x00ff88, 1);
           this.debugGraphics.fillCircle(x, y, 5);
           this.debugGraphics.lineStyle(1, 0xffffff, 0.8);
@@ -348,7 +345,18 @@ export default class LevelScene extends Phaser.Scene {
     this.previewGraphics.clear();
 
     if (this.phase === 'gameover' || this.phase === 'victory') return;
-    if (this._towerPopup) return;
+
+    // Tower hover — show its range ring
+    const SELL_HIT_R = 28;
+    for (const t of this.turrets) {
+      if (Math.hypot(x - t.cx, y - t.cy) < SELL_HIT_R) {
+        const def = TURRET_TYPES[t.type];
+        this.previewGraphics.lineStyle(1, 0xf0c040, 0.5);
+        this.previewGraphics.strokeEllipse(t.cx, t.cy, def.range * 2, def.range, 64);
+        this._setStatusBar('Click to sell tower', 'valid');
+        return;
+      }
+    }
 
     const zones    = this.levelConfig.placementZones;
     const allTypes   = Object.values(TURRET_TYPES);
@@ -367,14 +375,20 @@ export default class LevelScene extends Phaser.Scene {
     this.previewGraphics.lineStyle(1, isValid ? 0x00ff88 : 0xff4444, isValid ? 0.7 : (inZone ? 0.7 : 0.3));
     this.previewGraphics.strokeEllipse(x, y, tileW * 2, tileH * 2);
 
+    if (isValid) {
+      const defaultRange = allTypes[0].range;
+      this.previewGraphics.lineStyle(1, 0x00ff88, 0.3);
+      this.previewGraphics.strokeEllipse(x, y, defaultRange * 2, defaultRange, 64);
+    }
+
     if (!inZone) {
       this._setStatusBar('Not a valid placement zone', 'invalid');
     } else if (tooClose) {
-      this._setStatusBar('Placement too close to an existing tower', 'invalid');
+      this._setStatusBar('Proximity too close to an existing tower', 'invalid');
     } else if (!canAfford) {
       this._setStatusBar('Insufficient gold', 'invalid');
     } else {
-      this._setStatusBar('Click to place a tower', 'valid');
+      this._setStatusBar('', 'valid');
     }
   }
 
@@ -481,6 +495,108 @@ export default class LevelScene extends Phaser.Scene {
     return inside;
   }
 
+  // ─── Restart confirm ─────────────────────────────────────────────────────
+
+  _showRestartConfirm() {
+    if (this._restartConfirm) return;
+    const W = 280, H = 110;
+    const rx = (CANVAS_W - W) / 2, ry = (CANVAS_H - H) / 2;
+
+    const gfx = this.add.graphics().setDepth(1100);
+    gfx.fillStyle(0x000000, 0.6);
+    gfx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    gfx.fillStyle(0x0d1117, 1);
+    gfx.fillRoundedRect(rx, ry, W, H, 8);
+    gfx.lineStyle(1, 0x2a2a4a, 1);
+    gfx.strokeRoundedRect(rx, ry, W, H, 8);
+
+    const msg = this.add.text(CANVAS_W / 2, ry + 28, 'Restart level?', {
+      fontSize: '16px', fontFamily: 'Cinzel', color: '#cccccc',
+    }).setOrigin(0.5).setDepth(1101);
+
+    const yesBtn = this._makeButton(CANVAS_W / 2 - 54, ry + H - 28, 'Restart', 'gold', 1101, () => {
+      this._hideRestartConfirm();
+      this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel });
+    }, { shadow: false });
+    const noBtn = this._makeButton(CANVAS_W / 2 + 54, ry + H - 28, 'Cancel', 'dark', 1101, () => {
+      this._hideRestartConfirm();
+    }, { shadow: false });
+
+    this._restartConfirm = { gfx, msg, yesBtn, noBtn };
+  }
+
+  _hideRestartConfirm() {
+    if (!this._restartConfirm) return;
+    const { gfx, msg, yesBtn, noBtn } = this._restartConfirm;
+    gfx.destroy();
+    msg.destroy();
+    yesBtn._gfx.destroy(); yesBtn._txt.destroy();
+    noBtn._gfx.destroy();  noBtn._txt.destroy();
+    this._restartConfirm = null;
+  }
+
+  // ─── Button factory ───────────────────────────────────────────────────────
+
+  _makeButton(x, y, label, style, depth, onPress, opts = {}) {
+    const origin = opts.origin ?? 0.5;
+    const shadow = opts.shadow ?? true;
+
+    const palettes = {
+      gold: { face: 0xd4a010, hi: 0xffe066, sh: 0x7a5800, text: '#1a0e00' },
+      dark: { face: 0x1e2244, hi: 0x2e3466, sh: 0x080a14, text: '#cccccc' },
+    };
+    const pal = palettes[style] ?? palettes.dark;
+
+    const pad = { x: style === 'gold' ? 18 : 14, y: style === 'gold' ? 8 : 6 };
+    const fontSize = style === 'gold' ? '18px' : '13px';
+
+    const txt = this.add.text(0, 0, label, {
+      fontSize, fontFamily: 'Cinzel', color: pal.text,
+    }).setDepth(depth + 1);
+
+    const tw = txt.width  + pad.x * 2;
+    const th = txt.height + pad.y * 2;
+    const gfx = this.add.graphics().setDepth(depth);
+
+    const draw = (pressed, hovered) => {
+      gfx.clear();
+      const face = hovered ? pal.hi : pal.face;
+      const radius = 5;
+      const ox = origin === 0.5 ? -tw / 2 : 0;
+      const oy = origin === 0.5 ? -th / 2 : 0;
+      const bx = x + ox, by = y + oy;
+
+      if (!pressed && shadow) {
+        gfx.fillStyle(pal.sh, 1);
+        gfx.fillRoundedRect(bx + 3, by + 3, tw, th, radius);
+      }
+      gfx.fillStyle(face, 1);
+      gfx.fillRoundedRect(bx + (pressed ? 2 : 0), by + (pressed ? 2 : 0), tw, th, radius);
+      gfx.fillStyle(0xffffff, pressed ? 0 : 0.18);
+      gfx.fillRoundedRect(bx + (pressed ? 2 : 0), by + (pressed ? 2 : 0), tw, radius, { tl: radius, tr: radius, bl: 0, br: 0 });
+      gfx.fillRoundedRect(bx + (pressed ? 2 : 0), by + (pressed ? 2 : 0), radius, th, { tl: radius, tr: 0, bl: radius, br: 0 });
+
+      txt.setPosition(
+        bx + (pressed ? 2 : 0) + pad.x,
+        by + (pressed ? 2 : 0) + pad.y
+      );
+    };
+
+    draw(false, false);
+
+    txt.setInteractive({ useHandCursor: true });
+    txt.on('pointerover',  () => { this._overButton = true;  this.previewGraphics.clear(); this._setStatusBar(''); draw(false, true); });
+    txt.on('pointerout',   () => { this._overButton = false; draw(false, false); });
+    txt.on('pointerdown',  () => { draw(true, false); onPress(); });
+    txt.on('pointerup',    () => draw(false, true));
+
+    return {
+      setVisible(v) { gfx.setVisible(v); txt.setVisible(v); return this; },
+      setText(t)    { txt.setText(t); draw(false, false); return this; },
+      _gfx: gfx, _txt: txt,
+    };
+  }
+
   // ─── Tower placement ──────────────────────────────────────────────────────
 
   onTileClick(pointer) {
@@ -492,18 +608,32 @@ export default class LevelScene extends Phaser.Scene {
       return;
     }
 
-    const zones  = this.levelConfig.placementZones;
-    const inZone = zones.some(z => this._pointInPolygon(pointer.x, pointer.y, z));
+    // Hit-test existing turrets first — click on a tower to sell it
+    const SELL_HIT_R = 28;
+    for (const t of this.turrets) {
+      if (Math.hypot(pointer.x - t.cx, pointer.y - t.cy) < SELL_HIT_R) {
+        this._openSellPopup(t, pointer.x, pointer.y);
+        return;
+      }
+    }
+
+    const allTypes = Object.values(TURRET_TYPES);
+    const zones    = this.levelConfig.placementZones;
+    const inZone   = zones.some(z => this._pointInPolygon(pointer.x, pointer.y, z));
     if (!inZone) return;
 
     for (const wp of this.waypoints) {
       if (Math.hypot(pointer.x - wp.x, pointer.y - wp.y) < 30) return;
     }
-    const minSpace = Math.min(...Object.values(TURRET_TYPES).map(t => t.minSpacing));
+    const minSpace = Math.min(...allTypes.map(t => t.minSpacing));
     for (const t of this.turrets) {
       if (Math.hypot(pointer.x - t.cx, pointer.y - t.cy) < minSpace) return;
     }
 
+    const minCost = Math.min(...allTypes.map(t => t.cost));
+    if (this.gold < minCost) return;
+
+    this._drawPlacementPreview(pointer.x, pointer.y);
     this._openTowerPopup(pointer.x, pointer.y);
   }
 
@@ -511,9 +641,8 @@ export default class LevelScene extends Phaser.Scene {
     const types  = Object.values(TURRET_TYPES);
     const cardW  = 130, cardH = 90, gap = 8, pad = 10;
     const totalW = types.length * cardW + (types.length - 1) * gap + pad * 2;
-    const totalH = cardH + pad * 2 + 20; // 20 for title row
+    const totalH = cardH + pad * 2 + 20;
 
-    // Anchor popup above the click point, clamped to canvas
     const px = Math.min(Math.max(x - totalW / 2, 4), CANVAS_W - totalW - 4);
     const py = Math.max(y - totalH - 12, 4);
 
@@ -524,7 +653,7 @@ export default class LevelScene extends Phaser.Scene {
     gfx.strokeRoundedRect(px, py, totalW, totalH, 6);
 
     const title = this.add.text(px + totalW / 2, py + pad, 'Choose tower', {
-      fontSize: '11px', fontFamily: 'monospace', color: '#888888',
+      fontSize: '11px', fontFamily: 'Cinzel', color: '#888888',
     }).setOrigin(0.5, 0).setDepth(601);
 
     const cards = [];
@@ -545,20 +674,20 @@ export default class LevelScene extends Phaser.Scene {
         .setAlpha(canAfford ? 1 : 0.4);
 
       const nameText = this.add.text(cx + cardW / 2, cy + 54, def.label ?? def.key, {
-        fontSize: '11px', fontFamily: 'monospace',
+        fontSize: '11px', fontFamily: 'Cinzel',
         color: canAfford ? '#ccffcc' : '#996666',
       }).setOrigin(0.5, 0).setDepth(602);
 
       const costText = this.add.text(cx + cardW / 2, cy + 70, `${def.cost}g`, {
-        fontSize: '13px', fontFamily: 'monospace',
+        fontSize: '13px', fontFamily: 'Cinzel',
         color: canAfford ? '#f0c040' : '#664444',
       }).setOrigin(0.5, 0).setDepth(602);
 
-      // Invisible hit zone for the card
       const hitZone = this.add.zone(cx, cy, cardW, cardH).setOrigin(0, 0).setDepth(602).setInteractive({ useHandCursor: canAfford });
       if (canAfford) {
         hitZone.on('pointerdown', () => {
           this._closeTowerPopup();
+          this.previewGraphics.clear();
           this._placeTower(x, y, def.key);
         });
         hitZone.on('pointerover', () => {
@@ -581,22 +710,59 @@ export default class LevelScene extends Phaser.Scene {
     });
 
     this._towerPopup = { x, y, gfx, title, cards };
-    this.previewGraphics.clear();
+  }
+
+  _openSellPopup(turret, px, py) {
+    const def    = TURRET_TYPES[turret.type];
+    const refund = Math.floor(turret.cost / 2);
+    const cardW  = 150, cardH = 130, pad = 10;
+
+    const ox = Math.min(Math.max(px - cardW / 2, 4), CANVAS_W - cardW - 4);
+    const oy = Math.max(py - cardH - 12, 4);
+
+    const gfx = this.add.graphics().setDepth(600);
+    gfx.fillStyle(0x0d1117, 0.92);
+    gfx.fillRoundedRect(ox, oy, cardW, cardH, 6);
+    gfx.lineStyle(1, 0x4a2a0a, 1);
+    gfx.strokeRoundedRect(ox, oy, cardW, cardH, 6);
+
+    const title = this.add.text(ox + cardW / 2, oy + pad, def.label ?? def.key, {
+      fontSize: '11px', fontFamily: 'Cinzel', color: '#aaaaaa',
+    }).setOrigin(0.5, 0).setDepth(601);
+
+    const icon = this.add.image(ox + cardW / 2, oy + pad + 18 + 16, `turret_${def.key}`, def.frameIndex)
+      .setScale(def.displayScale * 0.5)
+      .setDepth(602);
+
+    const refundText = this.add.text(ox + cardW / 2, oy + 82, `Sell for ${refund}g`, {
+      fontSize: '11px', fontFamily: 'Cinzel', color: '#f0c040',
+    }).setOrigin(0.5, 0).setDepth(602);
+
+    const sellBtn = this._makeButton(ox + cardW / 2, oy + cardH - 20, 'Sell Tower', 'dark', 602, () => {
+      this._closeTowerPopup();
+      this._sellTower(turret);
+    }, { shadow: false });
+
+    this._towerPopup = { x: px, y: py, gfx, title, cards: [
+      { cardGfx: null, icon, nameText: refundText, costText: null, hitZone: null },
+    ], _sellBtn: sellBtn };
   }
 
   _closeTowerPopup() {
     if (!this._towerPopup) return;
-    const { gfx, title, cards } = this._towerPopup;
+    const { gfx, title, cards, _sellBtn } = this._towerPopup;
     gfx.destroy();
     title.destroy();
     for (const { cardGfx, icon, nameText, costText, hitZone } of cards) {
-      cardGfx.destroy();
-      icon.destroy();
-      nameText.destroy();
-      costText.destroy();
-      hitZone.destroy();
+      cardGfx?.destroy();
+      icon?.destroy();
+      nameText?.destroy();
+      costText?.destroy();
+      hitZone?.destroy();
     }
+    if (_sellBtn) { _sellBtn._gfx.destroy(); _sellBtn._txt.destroy(); }
     this._towerPopup = null;
+    this._overButton = false;
   }
 
   _placeTower(x, y, typeKey) {
@@ -612,15 +778,26 @@ export default class LevelScene extends Phaser.Scene {
     this.turrets.push({
       cx: x, cy: y,
       type: def.key,
+      cost: def.cost,
       sprite,
-      range:       def.range,
-      fireRate:    def.fireRate,
+      range:        def.range,
+      fireRate:     def.fireRate,
       fireCooldown: 0,
-      damage:      def.damage,
-      bulletSpeed: def.bulletSpeed,
-      bulletColor: def.bulletColor,
-      aimAngle:    0,
+      damage:       def.damage,
+      bulletSpeed:  def.bulletSpeed,
+      bulletColor:  def.bulletColor,
+      aimAngle:     0,
     });
+  }
+
+  _sellTower(turret) {
+    const refund = Math.floor(turret.cost / 2);
+    turret.sprite.destroy();
+    this.turrets.splice(this.turrets.indexOf(turret), 1);
+    this.gold += refund;
+    this._updateHUD();
+    this.previewGraphics.clear();
+    this._setStatusBar(`Sold for ${refund}g`, 'valid');
   }
 
   // ─── Spawning ─────────────────────────────────────────────────────────────

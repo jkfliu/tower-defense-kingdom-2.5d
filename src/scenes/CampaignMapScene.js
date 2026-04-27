@@ -13,6 +13,10 @@ export default class CampaignMapScene extends Phaser.Scene {
   }
 
   create(data = {}) {
+    document.getElementById('info').style.display      = 'none';
+    document.getElementById('hud').style.display       = 'none';
+    document.getElementById('statusbar').style.display = 'none';
+
     // Campaign progression state (persisted via scene data passing)
     this.currentLevel       = data.currentLevel       ?? 0;
     this.justCompletedLevel = data.justCompletedLevel ?? -1;
@@ -40,7 +44,7 @@ export default class CampaignMapScene extends Phaser.Scene {
     // Pre-create label texts (reused each frame)
     for (let i = 0; i < CAMPAIGN_LEVELS.length; i++) {
       const t = this.add.text(0, 0, '', {
-        fontSize: '11px', fontFamily: 'monospace', color: '#ffffff',
+        fontSize: '11px', fontFamily: 'Cinzel', color: '#ffffff',
         stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5, 1).setDepth(10);
       this._nodeTexts.push(t);
@@ -48,14 +52,14 @@ export default class CampaignMapScene extends Phaser.Scene {
 
     // Popup card texts
     this._popupTitle = this.add.text(0, 0, '', {
-      fontSize: '16px', fontFamily: 'monospace', color: '#3a2408',
+      fontSize: '16px', fontFamily: 'Cinzel', color: '#3a2408',
     }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
     this._popupDesc = this.add.text(0, 0, '', {
-      fontSize: '12px', fontFamily: 'monospace', color: '#5a3c10',
+      fontSize: '12px', fontFamily: 'Cinzel', color: '#5a3c10',
       wordWrap: { width: 320 }, align: 'center',
     }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
     this._popupBeginBtn = this.add.text(0, 0, 'Begin!', {
-      fontSize: '14px', fontFamily: 'monospace', color: '#d4eeaa',
+      fontSize: '14px', fontFamily: 'Cinzel', color: '#d4eeaa',
       backgroundColor: '#1a5c10', padding: { x: 16, y: 6 },
     }).setOrigin(0.5, 0.5).setDepth(20).setVisible(false)
       .setInteractive({ useHandCursor: true });
@@ -65,7 +69,7 @@ export default class CampaignMapScene extends Phaser.Scene {
 
     // Between-wave label text (for reveal)
     this._revealText = this.add.text(CANVAS_W / 2, 32, '', {
-      fontSize: '22px', fontFamily: 'monospace', color: '#f0e080',
+      fontSize: '22px', fontFamily: 'Cinzel', color: '#f0e080',
       stroke: '#000000', strokeThickness: 4,
     }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
 
@@ -82,8 +86,9 @@ export default class CampaignMapScene extends Phaser.Scene {
     // Map image sits above the dark bg fill (depth 0), below node graphics (depth 2)
     this._mapImg = this.add.image(0, 0, 'mapbg').setOrigin(0, 0).setDepth(1);
 
-    this._titleText = this.add.text(CANVAS_W / 2, 18, 'Kingdom of Sylvan', {
-      fontSize: '18px', fontFamily: 'monospace', color: '#e8d8a0',
+    this._titleText = this.add.text(CANVAS_W / 2, 22, 'Kingdom of Sylvan', {
+      fontSize: '28px', fontFamily: 'Cinzel', color: '#e8d8a0',
+      stroke: '#000000', strokeThickness: 5,
     }).setOrigin(0.5, 0.5).setDepth(15);
 
     // Input
@@ -252,15 +257,10 @@ export default class CampaignMapScene extends Phaser.Scene {
       this._drawReveal(g, now, nodeR);
     }
 
-    // Title bar
-    g.fillStyle(0x000000, 0.55);
-    g.fillRect(0, 0, CANVAS_W, 36);
+    // Title bar (no background fill — title text floats over the map)
 
     // Popup card
     if (this._popup) this._drawPopup(g);
-
-    // Hint bar
-    this._drawHintBar(g);
 
     // Position node label texts
     for (let i = 0; i < CAMPAIGN_LEVELS.length; i++) {
@@ -407,8 +407,4 @@ export default class CampaignMapScene extends Phaser.Scene {
     g.strokePath();
   }
 
-  _drawHintBar(g) {
-    g.fillStyle(0x000000, 0.45);
-    g.fillRect(0, CANVAS_H - 28, CANVAS_W, 28);
-  }
 }
