@@ -20,6 +20,8 @@
   #statusbar.invalid { color: #ff6666; opacity: 1; }
   #statusbar.neutral { color: #ccc;    opacity: 0.5; }
   .info-active { color: #f0c040; opacity: 1; }
+  #info a { color: #ccc; opacity: 0.7; text-decoration: none; }
+  #info a:hover { color: #f0c040; opacity: 1; }
 </style>
 </head>
 <body>
@@ -30,7 +32,7 @@
   <span>Gold <strong id="hud-gold" class="gold">—</strong></span>
 </div>
 <div id="game-container"></div>
-<div id="info">S Start Wave · P Pause · R Restart level · <span id="info-debug">D Debug</span> · <span id="info-editor">E Editor</span></div>
+<div id="info">S Start Wave · P Pause · R Restart level · <span id="info-debug">D Debug</span> · <span id="info-editor">E Editor</span> · <a href="dictionary.html" target="_blank">Dictionary</a></div>
 <div id="statusbar" class="neutral"></div>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <script type="module" src="src/main.js"></script>

@@ -30,8 +30,8 @@ export default class LevelScene extends Phaser.Scene {
         });
       }
     }
-    this.load.image('arrow', 'assets/Arrow_01.png');
-    this.load.image('orb', 'assets/Ecto_Orb.png');
+    this.load.image('arrow', 'assets/towers/Arrow_01.png');
+    this.load.image('orb', 'assets/towers/Ecto_Orb.png');
   }
 
   create(data = {}) {
@@ -211,6 +211,7 @@ export default class LevelScene extends Phaser.Scene {
       this._redrawDebug();
     });
 
+
     this.input.keyboard.on('keydown-DELETE', () => {
       if (!this.editorMode || !this._drag) return;
       if (this._drag.type === 'path') {
@@ -270,7 +271,7 @@ export default class LevelScene extends Phaser.Scene {
     });
   }
 
-  _showOverlay(title, sub, color = '#ffffff', showBackBtn = false, showRetryBtn = false) {
+  _showOverlay(title, sub, color = '#ffffff', showBackBtn = false, showRetryBtn = false, titleSize = 42) {
     this.entityGraphics.clear();
     this.overlayGraphics.clear();
     this.overlayGraphics.fillStyle(0x000000, 0.65);
@@ -278,13 +279,13 @@ export default class LevelScene extends Phaser.Scene {
 
     // Layout constants
     const padV       = 28;  // top and bottom panel padding
-    const titleH     = 42;  // font size
+    const titleH     = titleSize;
     const subGap     = 16;  // title → subtitle
     const subH       = 18;  // font size
     const btnGap     = 24;  // subtitle → first button (or between buttons)
     const btnH       = 34;  // approx rendered button height (gold 18px Cinzel + pad)
     const btnDarkH   = 26;  // dark button (13px Cinzel + pad)
-    const panelW     = 380;
+    const panelW     = 400;
     const cx         = CANVAS_W / 2;
 
     // Compute total content height
@@ -306,7 +307,7 @@ export default class LevelScene extends Phaser.Scene {
     // Position each element from top of panel
     let cursor = panelTop + padV;
 
-    this.overlayText.setPosition(cx, cursor + titleH / 2).setText(title).setColor(color).setVisible(true);
+    this.overlayText.setFontSize(titleSize).setPosition(cx, cursor + titleH / 2).setText(title).setColor(color).setVisible(true);
     cursor += titleH + subGap;
 
     this.overlaySubText.setPosition(cx, cursor + subH / 2).setText(sub).setVisible(true);
@@ -802,7 +803,10 @@ export default class LevelScene extends Phaser.Scene {
       return this._makeCardUI(def, cx, cy, cardW, cardH, x, y);
     });
 
-    this._towerPopup = { x, y, gfx, title, cards };
+    this._towerPopup = {
+      x, y,
+      destroyables: [gfx, title, ...cards.flatMap(c => [c.cardGfx, c.icon, c.nameText, c.costText, c.hitZone])],
+    };
   }
 
   _makeCardUI(def, cx, cy, cardW, cardH, placeX, placeY) {
@@ -872,24 +876,18 @@ export default class LevelScene extends Phaser.Scene {
       this._sellTower(turret);
     }, { shadow: false });
 
-    this._towerPopup = { x: px, y: py, gfx, title, cards: [
-      { cardGfx: null, icon, nameText: refundText, costText: null, hitZone: null },
-    ], _sellBtn: sellBtn };
+    this._towerPopup = {
+      x: px, y: py,
+      destroyables: [gfx, title, icon, refundText, sellBtn],
+    };
   }
 
   _closeTowerPopup() {
     if (!this._towerPopup) return;
-    const { gfx, title, cards, _sellBtn } = this._towerPopup;
-    gfx.destroy();
-    title.destroy();
-    for (const { cardGfx, icon, nameText, costText, hitZone } of cards) {
-      cardGfx?.destroy();
-      icon?.destroy();
-      nameText?.destroy();
-      costText?.destroy();
-      hitZone?.destroy();
+    for (const obj of this._towerPopup.destroyables) {
+      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); }
+      else obj?.destroy();
     }
-    if (_sellBtn) { _sellBtn._gfx.destroy(); _sellBtn._txt.destroy(); }
     this._towerPopup = null;
     this._overButton = false;
   }
@@ -993,6 +991,124 @@ export default class LevelScene extends Phaser.Scene {
     });
   }
 
+  _applyHit(enemy, damage) {
+    enemy.hp -= damage;
+    if (enemy.hp <= 0 && !enemy.dying) {
+      this.killEnemy(enemy);
+    } else if (!enemy.dying && enemy.sprite.anims.currentAnim?.key !== `${enemy.type}_hurt`) {
+      enemy.sprite.removeAllListeners('animationcomplete');
+      enemy.sprite.play(`${enemy.type}_hurt`);
+      enemy.sprite.once('animationcomplete', () => {
+        if (!enemy.dying) enemy.sprite.play(`${enemy.type}_walk`);
+      });
+    }
+  }
+
+  _predictPath(enemy, seconds) {
+    let remaining = enemy.speed * seconds;
+    let px = enemy.x, py = enemy.y;
+    for (let wi = enemy.waypointIdx; wi < this.waypoints.length && remaining > 0; wi++) {
+      const wp   = this.waypoints[wi];
+      const wdx  = wp.x - px;
+      const wdy  = wp.y - py;
+      const wlen = Math.sqrt(wdx * wdx + wdy * wdy);
+      if (wlen <= remaining) {
+        px = wp.x; py = wp.y;
+        remaining -= wlen;
+      } else {
+        px += (wdx / wlen) * remaining;
+        py += (wdy / wlen) * remaining;
+        remaining = 0;
+      }
+    }
+    return { x: px, y: py };
+  }
+
+  _fireArrow(t, nearest) {
+    const { x: endX, y: endY } = this._predictPath(nearest, t.arcDuration);
+    const sprite = this.add.image(t.cx, t.cy, 'arrow').setScale(1.125).setDepth(600);
+    this.bullets.push({
+      bulletType: 'arrow',
+      startX: t.cx, startY: t.cy,
+      endX, endY,
+      arcHeight: t.arcHeight,
+      arcDuration: t.arcDuration,
+      elapsed: 0,
+      damage: t.damage,
+      sprite,
+    });
+  }
+
+  _fireOrb(t, nearest) {
+    const odx        = nearest.x - t.cx;
+    const ody        = nearest.y - t.cy;
+    const oDist      = Math.sqrt(odx * odx + ody * ody);
+    const flightTime = oDist / t.bulletSpeed;
+    const { x: px, y: py } = this._predictPath(nearest, flightTime);
+    const toDx = px - t.cx;
+    const toDy = py - t.cy;
+    const toD  = Math.sqrt(toDx * toDx + toDy * toDy);
+    const sprite = this.add.image(t.cx, t.cy, 'orb').setScale(0.18).setDepth(600);
+    this.bullets.push({
+      bulletType: 'orb',
+      x: t.cx, y: t.cy,
+      vx: (toDx / toD) * t.bulletSpeed,
+      vy: (toDy / toD) * t.bulletSpeed,
+      maxDist: toD + 40,
+      travelled: 0,
+      damage: t.damage,
+      sprite,
+    });
+  }
+
+  _updateArrow(b, dt, i) {
+    b.elapsed += dt;
+    const tRaw = b.elapsed / b.arcDuration;
+
+    if (tRaw >= 1) {
+      b.sprite.destroy();
+      this.bullets.splice(i, 1);
+      const hit = this.enemies.find(e => !e.dying &&
+        Math.sqrt((e.x - b.endX) ** 2 + (e.y - b.endY) ** 2) < 25);
+      if (hit) this._applyHit(hit, b.damage);
+      return;
+    }
+
+    const tc    = Math.min(tRaw, 1);
+    const prevT = Math.max(0, tc - 0.01);
+    const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
+    const px = b.startX + (b.endX - b.startX) * tc;
+    const py = b.startY + (b.endY - b.startY) * tc + arcY(tc);
+    const qx = b.startX + (b.endX - b.startX) * prevT;
+    const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
+    b.sprite.setPosition(px, py);
+    b.sprite.setRotation(Math.atan2(py - qy, px - qx));
+  }
+
+  _updateOrb(b, dt, i) {
+    const stepX = b.vx * dt;
+    const stepY = b.vy * dt;
+    b.x += stepX;
+    b.y += stepY;
+    b.travelled += Math.sqrt(stepX * stepX + stepY * stepY);
+    b.sprite.setPosition(b.x, b.y);
+    b.sprite.setRotation(Math.atan2(b.vy, b.vx));
+
+    if (b.travelled >= b.maxDist) {
+      b.sprite.destroy();
+      this.bullets.splice(i, 1);
+      return;
+    }
+
+    const hit = this.enemies.find(e => !e.dying &&
+      Math.sqrt((e.x - b.x) ** 2 + (e.y - b.y) ** 2) < 15);
+    if (hit) {
+      b.sprite.destroy();
+      this.bullets.splice(i, 1);
+      this._applyHit(hit, b.damage);
+    }
+  }
+
   _checkWaveComplete() {
     if (this.phase !== 'wave') return;
     if (this.spawnedCount < this.enemiesPerWave) return;
@@ -1005,7 +1121,7 @@ export default class LevelScene extends Phaser.Scene {
     } else {
       this.phase = 'between';
       this._betweenTimer = 0;
-      this._showOverlay(`Wave ${this.wave} Complete!`, 'Prepare your defences…', '#88ff88');
+      this._showOverlay(`Wave ${this.wave} Complete!`, 'Prepare your defences…', '#88ff88', false, false, 28);
     }
   }
 
@@ -1042,33 +1158,34 @@ export default class LevelScene extends Phaser.Scene {
     // Placing phase: static — no spawning, no movement
     if (this.phase === 'placing') return;
 
-    // ── Wave phase ──────────────────────────────────────────────────────────
+    const dt = delta / 1000;
+    this._updateSpawning(delta);
+    this._updateEnemies(dt);
+    this._updateTurrets(delta);
+    this._updateBullets(dt);
+    this._drawEntities();
+  }
 
-    // Spawn enemies up to limit
-    if (this.spawnedCount < this.enemiesPerWave) {
-      this.spawnTimer += delta;
-      if (this.spawnTimer >= this.spawnInterval) {
-        this.spawnTimer    = 0;
-        this.spawnInterval = this._nextSpawnDelay();
-        if (this.waypoints.length > 1) {
-          this.spawnEnemy(this._pickEnemyType());
-          this.spawnedCount++;
-        }
+  _updateSpawning(delta) {
+    if (this.spawnedCount >= this.enemiesPerWave) return;
+    this.spawnTimer += delta;
+    if (this.spawnTimer >= this.spawnInterval) {
+      this.spawnTimer    = 0;
+      this.spawnInterval = this._nextSpawnDelay();
+      if (this.waypoints.length > 1) {
+        this.spawnEnemy(this._pickEnemyType());
+        this.spawnedCount++;
       }
     }
+  }
 
-    const dt = delta / 1000;
-
-    // Move enemies
+  _updateEnemies(dt) {
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (e.dying) continue;
 
       const target = this.waypoints[e.waypointIdx];
-      if (!target) {
-        this._enemyEscaped(e, i);
-        continue;
-      }
+      if (!target) { this._enemyEscaped(e, i); continue; }
 
       const dx   = target.x - e.x;
       const dy   = target.y - e.y;
@@ -1081,17 +1198,17 @@ export default class LevelScene extends Phaser.Scene {
           continue;
         }
       } else {
-        const speed = e.speed * dt;
-        e.x += (dx / dist) * speed;
-        e.y += (dy / dist) * speed;
+        e.x += (dx / dist) * e.speed * dt;
+        e.y += (dy / dist) * e.speed * dt;
         e.sprite.setFlipX(dx < 0);
       }
 
       e.sprite.setPosition(e.x, e.y);
       e.sprite.setDepth(e.y);
     }
+  }
 
-    // Turrets fire
+  _updateTurrets(delta) {
     for (const t of this.turrets) {
       t.fireCooldown -= delta;
       if (t.fireCooldown > 0) continue;
@@ -1108,148 +1225,18 @@ export default class LevelScene extends Phaser.Scene {
       if (nearest) {
         t.fireCooldown = t.fireRate;
         t.aimAngle = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
-        let sprite;
-        if (t.bulletType === 'orb') {
-          sprite = this.add.image(t.cx, t.cy, 'orb').setScale(0.18);
-        } else {
-          sprite = this.add.image(t.cx, t.cy, 'arrow').setScale(1.125);
-        }
-        sprite.setDepth(600);
-        if (t.bulletType === 'arrow') {
-          // Lead the target: predict position after arcDuration seconds
-          const wp     = this.waypoints[nearest.waypointIdx];
-          const wdx    = wp.x - nearest.x;
-          const wdy    = wp.y - nearest.y;
-          const wdist  = Math.sqrt(wdx * wdx + wdy * wdy);
-          const travel = nearest.speed * t.arcDuration;
-          const frac   = wdist > 0 ? Math.min(travel / wdist, 1) : 0;
-          const endX   = nearest.x + wdx * frac;
-          const endY   = nearest.y + wdy * frac;
-          this.bullets.push({
-            bulletType: 'arrow',
-            startX: t.cx, startY: t.cy,
-            endX, endY,
-            arcHeight: t.arcHeight,
-            arcDuration: t.arcDuration,
-            elapsed: 0,
-            damage: t.damage,
-            targetId: nearest.id,
-            sprite,
-          });
-        } else {
-          // Multi-waypoint lead: walk enemy along path for flightTime seconds
-          const odx        = nearest.x - t.cx;
-          const ody        = nearest.y - t.cy;
-          const oDist      = Math.sqrt(odx * odx + ody * ody);
-          const flightTime = oDist / t.bulletSpeed;
-          let remaining    = nearest.speed * flightTime;
-          let px = nearest.x, py = nearest.y;
-          for (let wi = nearest.waypointIdx; wi < this.waypoints.length && remaining > 0; wi++) {
-            const wp   = this.waypoints[wi];
-            const wdx  = wp.x - px;
-            const wdy  = wp.y - py;
-            const wlen = Math.sqrt(wdx * wdx + wdy * wdy);
-            if (wlen <= remaining) {
-              px = wp.x; py = wp.y;
-              remaining -= wlen;
-            } else {
-              px += (wdx / wlen) * remaining;
-              py += (wdy / wlen) * remaining;
-              remaining = 0;
-            }
-          }
-          const toDx = px - t.cx;
-          const toDy = py - t.cy;
-          const toD  = Math.sqrt(toDx * toDx + toDy * toDy);
-          this.bullets.push({
-            bulletType: 'orb',
-            x: t.cx, y: t.cy,
-            vx: (toDx / toD) * t.bulletSpeed,
-            vy: (toDy / toD) * t.bulletSpeed,
-            maxDist: toD + 40,
-            travelled: 0,
-            damage: t.damage,
-            sprite,
-          });
-        }
+        if (t.bulletType === 'arrow') this._fireArrow(t, nearest);
+        else                          this._fireOrb(t, nearest);
       }
     }
+  }
 
-    // Move bullets
+  _updateBullets(dt) {
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
-
-      if (b.bulletType === 'arrow') {
-        b.elapsed += dt;
-        const tRaw = b.elapsed / b.arcDuration;
-
-        if (tRaw >= 1) {
-          // Arrival — damage nearest enemy within 20px of landing point
-          b.sprite.destroy();
-          this.bullets.splice(i, 1);
-          const hit = this.enemies.find(e => !e.dying &&
-            Math.sqrt((e.x - b.endX) ** 2 + (e.y - b.endY) ** 2) < 25);
-          if (hit) {
-            hit.hp -= b.damage;
-            if (hit.hp <= 0 && !hit.dying) {
-              this.killEnemy(hit);
-            } else if (!hit.dying && hit.sprite.anims.currentAnim?.key !== `${hit.type}_hurt`) {
-              hit.sprite.removeAllListeners('animationcomplete');
-              hit.sprite.play(`${hit.type}_hurt`);
-              hit.sprite.once('animationcomplete', () => {
-                if (!hit.dying) hit.sprite.play(`${hit.type}_walk`);
-              });
-            }
-          }
-          continue;
-        }
-
-        const tc   = Math.min(tRaw, 1);
-        const prevT = Math.max(0, tc - 0.01);
-        const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
-        const px = b.startX + (b.endX - b.startX) * tc   + 0;
-        const py = b.startY + (b.endY - b.startY) * tc   + arcY(tc);
-        const qx = b.startX + (b.endX - b.startX) * prevT;
-        const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
-        b.sprite.setPosition(px, py);
-        b.sprite.setRotation(Math.atan2(py - qy, px - qx));
-
-      } else {
-        // Fixed-trajectory orb
-        const stepX = b.vx * dt;
-        const stepY = b.vy * dt;
-        b.x += stepX;
-        b.y += stepY;
-        b.travelled += Math.sqrt(stepX * stepX + stepY * stepY);
-        b.sprite.setPosition(b.x, b.y);
-        b.sprite.setRotation(Math.atan2(b.vy, b.vx));
-
-        if (b.travelled >= b.maxDist) {
-          b.sprite.destroy();
-          this.bullets.splice(i, 1);
-          continue;
-        }
-
-        const hit = this.enemies.find(e => !e.dying &&
-          Math.sqrt((e.x - b.x) ** 2 + (e.y - b.y) ** 2) < 15);
-        if (hit) {
-          b.sprite.destroy();
-          this.bullets.splice(i, 1);
-          hit.hp -= b.damage;
-          if (hit.hp <= 0 && !hit.dying) {
-            this.killEnemy(hit);
-          } else if (!hit.dying && hit.sprite.anims.currentAnim?.key !== `${hit.type}_hurt`) {
-            hit.sprite.removeAllListeners('animationcomplete');
-            hit.sprite.play(`${hit.type}_hurt`);
-            hit.sprite.once('animationcomplete', () => {
-              if (!hit.dying) hit.sprite.play(`${hit.type}_walk`);
-            });
-          }
-        }
-      }
+      if (b.bulletType === 'arrow') this._updateArrow(b, dt, i);
+      else                          this._updateOrb(b, dt, i);
     }
-
-    this._drawEntities();
   }
 
   // ─── Entity rendering ─────────────────────────────────────────────────────

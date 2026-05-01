@@ -1,7 +1,7 @@
 export const ENEMY_TYPES = {
   skeleton: {
     key: 'skeleton',
-    spritesheet: 'assets/Skeleton-shadow.png',
+    spritesheet: 'assets/enemies/Skeleton-shadow.png',
     frameWidth: 100,
     frameHeight: 100,
     sheetCols: 8,
@@ -21,7 +21,7 @@ export const ENEMY_TYPES = {
   },
   orc: {
     key: 'orc',
-    spritesheet: 'assets/Orc-shadow.png',
+    spritesheet: 'assets/enemies/Orc-shadow.png',
     frameWidth: 100,
     frameHeight: 100,
     sheetCols: 8,

@@ -2,7 +2,7 @@ export const TURRET_TYPES = {
   basic: {
     key: 'basic',
     label: 'Archer Tower',
-    image: 'assets/Firefly_Gemini_archer_tower.128x128.png',
+    image: 'assets/towers/Firefly_Gemini_archer_tower.128x128.png',
     displayScale: 0.6,
     cost: 40,
     range: 180,
@@ -18,7 +18,7 @@ export const TURRET_TYPES = {
   mage: {
     key: 'mage',
     label: 'Mage Tower',
-    image: 'assets/Firefly_Gemini_mage_tower.128x128.png',
+    image: 'assets/towers/Firefly_Gemini_mage_tower.128x128.png',
     displayScale: 0.7,
     cost: 70,
     range: 120,

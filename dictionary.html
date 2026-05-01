@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sylvan Defenders 2.5D — Dictionary</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1a2e; color: #e8d8a0; font-family: 'Cinzel', serif; padding: 24px; }
+    h1 { text-align: center; font-size: 28px; color: #f0c040; margin-bottom: 6px; letter-spacing: 2px; }
+    .subtitle { text-align: center; color: #888; font-size: 12px; margin-bottom: 36px; letter-spacing: 0.05em; }
+    h2 { font-size: 16px; color: #f0c040; border-bottom: 1px solid #2a2a4a; padding-bottom: 8px; margin: 36px 0 16px; letter-spacing: 1px; }
+    h3 { font-size: 13px; color: #cccccc; margin-bottom: 6px; text-align: center; }
+
+    .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+
+    /* Tower cards */
+    .tower-card {
+      background: #0d1117;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 14px;
+      width: 160px;
+      text-align: center;
+    }
+    .tower-card img { display: block; margin: 0 auto; border-radius: 4px; background: #1a2a1a; }
+    .tower-stats { font-size: 11px; color: #666; margin-top: 10px; line-height: 1.8; text-align: left; }
+    .tower-stats span { color: #e8d0a0; }
+
+    /* Enemy cards */
+    .enemy-card {
+      background: #0d1117;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 14px;
+      width: 150px;
+      text-align: center;
+    }
+    .enemy-card canvas { display: block; margin: 0 auto; border-radius: 4px; background: #1a2a1a; }
+    .enemy-stats { font-size: 11px; color: #666; margin-top: 10px; line-height: 1.8; text-align: left; }
+    .enemy-stats span { color: #e8d0a0; }
+
+    .bullet-dot {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    /* Level cards */
+    .level-card {
+      background: #0d1117;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 14px;
+      width: 320px;
+    }
+    .level-card canvas { display: block; border-radius: 4px; width: 100%; }
+    .level-card h3 { text-align: left; margin-bottom: 4px; color: #f0c040; }
+    .level-desc { font-size: 11px; color: #666; margin: 6px 0 8px; font-family: Georgia, serif; font-style: italic; line-height: 1.5; }
+    .level-meta { display: flex; gap: 16px; font-size: 11px; color: #666; }
+    .level-meta span { color: #e8d0a0; }
+    .level-unbuilt { display: flex; align-items: center; justify-content: center; height: 80px; font-size: 11px; color: #333; border-radius: 4px; background: #0a0a14; }
+
+    a.back { display: inline-block; margin-bottom: 24px; color: #f0c040; text-decoration: none; font-size: 12px; letter-spacing: 0.05em; }
+    a.back:hover { color: #ffe080; }
+  </style>
+</head>
+<body>
+
+<a class="back" href="index.html">← Back to game</a>
+<h1>Sylvan Defenders 2.5D</h1>
+<p class="subtitle">Game Dictionary — Levels · Towers · Enemies</p>
+
+<h2>🗺 Levels</h2>
+<div class="grid" id="levels-grid"></div>
+
+<h2>🏰 Towers</h2>
+<div class="grid" id="towers-grid"></div>
+
+<h2>👹 Enemies</h2>
+<div class="grid" id="enemies-grid"></div>
+
+<script>
+// ─── Level data ───────────────────────────────────────────────────────────────
+const CANVAS_W = 900, CANVAS_H = 560;
+const NATIVE_W = 1072, NATIVE_H = 904;
+const scaleX = CANVAS_W / NATIVE_W, scaleY = CANVAS_H / NATIVE_H;
+function bgPt(x, y) { return { x: Math.round(x * scaleX), y: Math.round(y * scaleY) }; }
+
+const CAMPAIGN_LEVELS = [
+  { id: 0, name: 'Forest Outpost',  startGold: 100, waves: 3, enemiesPerWave: 8,  description: 'Goblins raid from the treeline. Hold the outpost at all costs.' },
+  { id: 1, name: 'Goblin Warren',   startGold: 110, waves: 3, enemiesPerWave: 10, description: 'The goblins have dug in deep. Root them out before they multiply.' },
+  { id: 2, name: 'Mudflats',        startGold: 120, waves: 3, enemiesPerWave: 10, description: 'Orcs wade through the marshes. Slow them in the mud or be overwhelmed.' },
+  { id: 3, name: 'Stoneback Ridge', startGold: 135, waves: 4, enemiesPerWave: 10, description: 'Trolls hurl boulders from the ridgeline. Reach them before they reach you.' },
+  { id: 4, name: 'Troll Bridge',    startGold: 150, waves: 4, enemiesPerWave: 12, description: 'A horde crosses the old stone bridge. Destroy it or hold the line.' },
+  { id: 5, name: 'Shadowfen',       startGold: 165, waves: 4, enemiesPerWave: 12, description: 'Dark Elves emerge from the fen at dusk. They move fast — be ready.' },
+  { id: 6, name: 'Ashwood',         startGold: 180, waves: 5, enemiesPerWave: 12, description: 'The forest burns. Demons fan the flames while dark elves harry your flanks.' },
+  { id: 7, name: 'Cursed Ruins',    startGold: 200, waves: 5, enemiesPerWave: 14, description: 'Demons have consecrated the ruins. Purge them or lose the east forever.' },
+  { id: 8, name: 'Demon Gate',      startGold: 220, waves: 5, enemiesPerWave: 14, description: 'The gate tears open. Wave after wave pours through. Hold until dawn.' },
+  { id: 9, name: 'Volcano Summit',  startGold: 250, waves: 5, enemiesPerWave: 16, description: "The demon lord commands from the volcano's peak. End this — now." },
+];
+
+const LEVELS = [
+  {
+    campaignId: 0,
+    background: 'assets/levels/level1-background.png',
+    waypoints: [
+      bgPt(289,310), bgPt(357,381), bgPt(422,441), bgPt(493,460),
+      bgPt(569,457), bgPt(648,457), bgPt(725,483), bgPt(771,518),
+      bgPt(798,565), bgPt(804,607), bgPt(796,647), bgPt(775,675),
+      bgPt(752,702), bgPt(752,743), bgPt(765,780), bgPt(791,836),
+      bgPt(790,901),
+    ],
+  },
+];
+
+// ─── Levels ───────────────────────────────────────────────────────────────────
+const THUMB_W = 292, THUMB_H = Math.round(292 * (CANVAS_H / CANVAS_W));
+const levelsGrid = document.getElementById('levels-grid');
+
+CAMPAIGN_LEVELS.forEach(cl => {
+  const levelData = LEVELS.find(l => l.campaignId === cl.id);
+
+  const card = document.createElement('div');
+  card.className = 'level-card';
+
+  const h3 = document.createElement('h3');
+  h3.textContent = `${cl.id + 1}. ${cl.name}`;
+  card.appendChild(h3);
+
+  const desc = document.createElement('p');
+  desc.className = 'level-desc';
+  desc.textContent = cl.description;
+  card.appendChild(desc);
+
+  if (levelData) {
+    const canvas = document.createElement('canvas');
+    canvas.width  = THUMB_W;
+    canvas.height = THUMB_H;
+    card.appendChild(canvas);
+
+    const sx = THUMB_W / CANVAS_W, sy = THUMB_H / CANVAS_H;
+    const img = new Image();
+    img.src = levelData.background;
+    img.onload = () => {
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, THUMB_W, THUMB_H);
+
+    };
+  } else {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'level-unbuilt';
+    placeholder.textContent = 'Level not yet built';
+    card.appendChild(placeholder);
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'level-meta';
+  meta.style.marginTop = '8px';
+  meta.innerHTML = `Gold <span>${cl.startGold}g</span> · Waves <span>${cl.waves}</span> · Enemies/wave <span>${cl.enemiesPerWave}</span>`;
+  card.appendChild(meta);
+
+  levelsGrid.appendChild(card);
+});
+
+// ─── Tower data ───────────────────────────────────────────────────────────────
+const TURRET_TYPES = [
+  {
+    key: 'basic',
+    label: 'Archer Tower',
+    image: 'assets/towers/Firefly_Gemini_archer_tower.128x128.png',
+    displayScale: 0.6,
+    cost: 40,
+    range: 180,
+    fireRate: 900,
+    damage: 25,
+    bulletSpeed: 260,
+    bulletColor: '#ffdd00',
+    bulletType: 'arrow',
+  },
+  {
+    key: 'mage',
+    label: 'Mage Tower',
+    image: 'assets/towers/Firefly_Gemini_mage_tower.128x128.png',
+    displayScale: 0.7,
+    cost: 70,
+    range: 120,
+    fireRate: 1400,
+    damage: 75,
+    bulletSpeed: 120,
+    bulletColor: '#9933ff',
+    bulletType: 'orb',
+  },
+];
+
+// ─── Enemy data ───────────────────────────────────────────────────────────────
+const ENEMY_TYPES = [
+  {
+    key: 'skeleton',
+    label: 'Skeleton',
+    spritesheet: 'assets/enemies/Skeleton-shadow.png',
+    frameWidth: 100, frameHeight: 100, sheetCols: 8,
+    displayScale: 2.0,
+    speed: { base: 60, variance: 30 },
+    hp: 100,
+    goldReward: 10,
+    walkRow: 1, walkFrames: 8, walkFrameRate: 10,
+  },
+  {
+    key: 'orc',
+    label: 'Orc',
+    spritesheet: 'assets/enemies/Orc-shadow.png',
+    frameWidth: 100, frameHeight: 100, sheetCols: 8,
+    displayScale: 2.0,
+    speed: { base: 40, variance: 20 },
+    hp: 200,
+    goldReward: 20,
+    walkRow: 1, walkFrames: 8, walkFrameRate: 10,
+  },
+];
+
+// ─── Towers ───────────────────────────────────────────────────────────────────
+const towersGrid = document.getElementById('towers-grid');
+const CARD_SIZE = 120;
+
+for (const t of TURRET_TYPES) {
+  const card = document.createElement('div');
+  card.className = 'tower-card';
+
+  const h3 = document.createElement('h3');
+  h3.textContent = t.label;
+  card.appendChild(h3);
+
+  const img = document.createElement('img');
+  img.src = t.image;
+  img.width  = CARD_SIZE;
+  img.height = CARD_SIZE;
+  img.style.objectFit = 'contain';
+  img.style.padding = '4px';
+  card.appendChild(img);
+
+  const stats = document.createElement('div');
+  stats.className = 'tower-stats';
+  stats.innerHTML = `
+    Cost: <span>${t.cost}g</span><br>
+    Damage: <span>${t.damage}</span><br>
+    Fire rate: <span>${(1000 / t.fireRate).toFixed(1)}/s</span><br>
+    Range: <span>${t.range}px</span><br>
+    Bullet: <span><span class="bullet-dot" style="background:${t.bulletColor}"></span>${t.bulletType}</span>
+  `;
+  card.appendChild(stats);
+
+  towersGrid.appendChild(card);
+}
+
+// ─── Enemies ──────────────────────────────────────────────────────────────────
+const enemiesGrid = document.getElementById('enemies-grid');
+const ENEMY_SIZE = 120;
+const FRAME_W = 100, FRAME_H = 100;
+let globalFps = 10;
+
+for (const e of ENEMY_TYPES) {
+  const card = document.createElement('div');
+  card.className = 'enemy-card';
+
+  const h3 = document.createElement('h3');
+  h3.textContent = e.label;
+  card.appendChild(h3);
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = ENEMY_SIZE;
+  canvas.height = ENEMY_SIZE;
+  card.appendChild(canvas);
+
+  const stats = document.createElement('div');
+  stats.className = 'enemy-stats';
+  stats.innerHTML = `
+    HP: <span>${e.hp}</span><br>
+    Speed: <span>${e.speed.base}–${e.speed.base + e.speed.variance}px/s</span><br>
+    Gold: <span>${e.goldReward}g</span>
+  `;
+  card.appendChild(stats);
+
+  enemiesGrid.appendChild(card);
+
+  // Load spritesheet and animate walk cycle
+  const img = new Image();
+  img.src = e.spritesheet;
+  img.onload = () => {
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    const scale = (ENEMY_SIZE / FRAME_W) * (1 / e.displayScale) * 2.2;
+    const drawW = FRAME_W * scale;
+    const drawH = FRAME_H * scale;
+    const ox = (ENEMY_SIZE - drawW) / 2;
+    const oy = (ENEMY_SIZE - drawH) / 2;
+
+    let frameIdx = 0;
+    let lastTime = 0;
+
+    function draw(ts) {
+      const interval = 1000 / globalFps;
+      if (ts - lastTime >= interval) {
+        lastTime = ts;
+        const absFrame = e.walkRow * e.sheetCols + frameIdx;
+        const srcX = (absFrame % e.sheetCols) * FRAME_W;
+        const srcY = Math.floor(absFrame / e.sheetCols) * FRAME_H;
+        ctx.clearRect(0, 0, ENEMY_SIZE, ENEMY_SIZE);
+        ctx.drawImage(img, srcX, srcY, FRAME_W, FRAME_H, ox, oy, drawW, drawH);
+        frameIdx = (frameIdx + 1) % e.walkFrames;
+      }
+      requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  };
+  img.onerror = () => {
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ff4444';
+    ctx.font = '10px monospace';
+    ctx.fillText('load error', 4, ENEMY_SIZE / 2);
+  };
+}
+</script>
+</body>
+</html>

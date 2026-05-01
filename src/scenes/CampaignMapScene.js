@@ -9,7 +9,7 @@ export default class CampaignMapScene extends Phaser.Scene {
   constructor() { super('CampaignMapScene'); }
 
   preload() {
-    this.load.image('mapbg', 'assets/CampaignMap.jpg');
+    this.load.image('mapbg', 'assets/levels/CampaignMap.jpg');
   }
 
   create(data = {}) {
