@@ -219,6 +219,7 @@ export default class LevelScene extends Phaser.Scene {
     });
 
     this._updateHUD();
+    this._setStatusBar('Click to place Tower · Start Wave button to begin', 'valid');
   }
 
   // ─── Wave / phase management ──────────────────────────────────────────────

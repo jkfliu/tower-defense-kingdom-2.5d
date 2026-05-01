@@ -7,6 +7,7 @@
 
 ## Levels
 - [ ] Level start preview popup showing enemies for that level (below Return to Map button)
+- [ ] Difficulty select in campaign map level popup (Easy / Normal / Hard)
 
 ## Audio
 - [ ] Web Audio (arrow shot, enemy death sounds)

@@ -55,11 +55,11 @@ export default class CampaignMapScene extends Phaser.Scene {
       fontSize: '16px', fontFamily: 'Cinzel', color: '#3a2408',
     }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
     this._popupDesc = this.add.text(0, 0, '', {
-      fontSize: '12px', fontFamily: 'Cinzel', color: '#5a3c10',
+      fontSize: '14px', fontFamily: 'Cinzel', color: '#5a3c10',
       wordWrap: { width: 320 }, align: 'center',
     }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
     this._popupBeginBtn = this.add.text(0, 0, 'Begin!', {
-      fontSize: '14px', fontFamily: 'Cinzel', color: '#d4eeaa',
+      fontSize: '16px', fontFamily: 'Cinzel', color: '#d4eeaa',
       backgroundColor: '#1a5c10', padding: { x: 16, y: 6 },
     }).setOrigin(0.5, 0.5).setDepth(20).setVisible(false)
       .setInteractive({ useHandCursor: true });
@@ -158,8 +158,7 @@ export default class CampaignMapScene extends Phaser.Scene {
 
     // Close popup on click outside card
     if (this._popup) {
-      const PW = 380, PH = 220;
-      const px = (CANVAS_W - PW) / 2, py = (CANVAS_H - PH) / 2;
+      const { px, py, PW, PH } = this._popup;
       if (p.x < px || p.x > px + PW || p.y < py || p.y > py + PH) {
         this._closePopup();
       }
@@ -191,14 +190,26 @@ export default class CampaignMapScene extends Phaser.Scene {
   // ─── Popup ───────────────────────────────────────────────────────────────────
 
   _openPopup(levelId) {
-    this._popup = { levelId };
     const lv = CAMPAIGN_LEVELS[levelId];
-    const PW = 380, PH = 220;
-    const px = (CANVAS_W - PW) / 2, py = (CANVAS_H - PH) / 2;
+    const PW = 380, pad = 20;
 
-    this._popupTitle.setText(lv.name).setPosition(px + PW / 2, py + 16).setVisible(true);
-    this._popupDesc.setText(lv.description).setPosition(px + PW / 2, py + 52).setVisible(true);
-    this._popupBeginBtn.setPosition(px + PW / 2, py + PH - 28).setVisible(true);
+    this._popupTitle.setText(lv.name).setPosition(0, 0).setVisible(true);
+    this._popupDesc.setText(lv.description).setPosition(0, 0).setVisible(true);
+
+    const titleH  = 44;
+    const descTop = 16;
+    const descBot = 16;
+    const descH   = this._popupDesc.height;
+    const btnH    = 36;
+    const PH      = titleH + descTop + descH + descBot + btnH + pad;
+    const px      = (CANVAS_W - PW) / 2;
+    const py      = (CANVAS_H - PH) / 2;
+
+    this._popupTitle.setPosition(px + PW / 2, py + 16);
+    this._popupDesc.setPosition(px + PW / 2, py + titleH + descTop);
+    this._popupBeginBtn.setPosition(px + PW / 2, py + titleH + descTop + descH + descBot + pad).setVisible(true);
+
+    this._popup = { levelId, px, py, PW, PH };
   }
 
   _closePopup() {
@@ -386,8 +397,7 @@ export default class CampaignMapScene extends Phaser.Scene {
   }
 
   _drawPopup(g) {
-    const PW = 380, PH = 220;
-    const px = (CANVAS_W - PW) / 2, py = (CANVAS_H - PH) / 2;
+    const { px, py, PW, PH } = this._popup;
 
     // Dim overlay
     g.fillStyle(0x000000, 0.5);
