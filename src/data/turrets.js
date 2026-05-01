@@ -12,6 +12,8 @@ export const TURRET_TYPES = {
     bulletSpeed: 260,
     bulletColor: 0xffdd00,
     bulletType: 'arrow',
+    arcDuration: 0.5,
+    arcHeight: 60,
   },
   mage: {
     key: 'mage',

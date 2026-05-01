@@ -83,6 +83,7 @@ export default class LevelScene extends Phaser.Scene {
 
     // --- Overlay layer (gameover / victory / between) ---
     this.overlayGraphics = this.add.graphics().setDepth(1200);
+    this.overlayPanel    = this.add.graphics().setDepth(1250);
     this.overlayText     = this.add.text(CANVAS_W / 2, CANVAS_H / 2 - 20, '', {
       fontSize: '42px', fontFamily: 'Cinzel', color: '#ffffff',
       stroke: '#000000', strokeThickness: 6,
@@ -95,7 +96,13 @@ export default class LevelScene extends Phaser.Scene {
     // --- Buttons ---
     this.startWaveBtn = this._makeButton(CANVAS_W / 2, CANVAS_H - 36, '▶  Start Wave 1', 'gold', 900, () => this._startWave());
 
-    this.backToMapBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 90, '← Back to Map', 'dark', 1300, () => this._goToMap());
+    this.retryLevelBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 96, '↺  Retry Level', 'gold', 1300, () => {
+      const levelId = LEVELS.indexOf(this.levelConfig);
+      this.scene.start('LevelScene', { levelId, currentLevel: this._currentLevel });
+    });
+    this.retryLevelBtn.setVisible(false);
+
+    this.backToMapBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 100, '← Back to Map', 'dark', 1300, () => this._goToMap());
     this.backToMapBtn.setVisible(false);
 
     this.quitBtn = this._makeButton(8, 8, '← Map', 'dark', 900, () => this.scene.start('CampaignMapScene', {
@@ -103,6 +110,8 @@ export default class LevelScene extends Phaser.Scene {
       justCompletedLevel: -1,
       reveal: false,
     }), { origin: 0 });
+
+    this._enemyPreview = this._buildEnemyPreview();
 
     this.paused = false;
     this.pauseText = this.add.text(CANVAS_W / 2, CANVAS_H / 2, 'PAUSED', {
@@ -140,9 +149,13 @@ export default class LevelScene extends Phaser.Scene {
       else this._drawPlacementPreview(p.x, p.y);
     });
 
-    this.input.on('pointerout', () => {
+    this._onMouseLeave = () => {
       this.previewGraphics.clear();
       this._setStatusBar('');
+    };
+    this.game.canvas.addEventListener('mouseleave', this._onMouseLeave);
+    this.events.once('shutdown', () => {
+      this.game.canvas.removeEventListener('mouseleave', this._onMouseLeave);
     });
 
     this.input.on('pointerdown', (p) => {
@@ -197,6 +210,7 @@ export default class LevelScene extends Phaser.Scene {
       this._drag = null;
       this._redrawDebug();
     });
+
     this.input.keyboard.on('keydown-DELETE', () => {
       if (!this.editorMode || !this._drag) return;
       if (this._drag.type === 'path') {
@@ -232,6 +246,7 @@ export default class LevelScene extends Phaser.Scene {
     this.phase        = 'wave';
     this.startWaveBtn.setVisible(false);
     this._hideOverlay();
+    this._dismissEnemyPreview();
     this._updateHUD();
   }
 
@@ -239,6 +254,7 @@ export default class LevelScene extends Phaser.Scene {
     this.phase = 'placing';
     this.startWaveBtn.setText(`▶  Start Wave ${this.wave + 1}`);
     this.startWaveBtn.setVisible(true);
+    this._enemyPreview = this._buildEnemyPreview();
     this._updateHUD();
   }
 
@@ -254,20 +270,68 @@ export default class LevelScene extends Phaser.Scene {
     });
   }
 
-  _showOverlay(title, sub, color = '#ffffff', showBackBtn = false) {
+  _showOverlay(title, sub, color = '#ffffff', showBackBtn = false, showRetryBtn = false) {
     this.entityGraphics.clear();
     this.overlayGraphics.clear();
     this.overlayGraphics.fillStyle(0x000000, 0.65);
     this.overlayGraphics.fillRect(0, 0, CANVAS_W, CANVAS_H);
-    this.overlayText.setText(title).setColor(color).setVisible(true);
-    this.overlaySubText.setText(sub).setVisible(true);
+
+    // Layout constants
+    const padV       = 28;  // top and bottom panel padding
+    const titleH     = 42;  // font size
+    const subGap     = 16;  // title → subtitle
+    const subH       = 18;  // font size
+    const btnGap     = 24;  // subtitle → first button (or between buttons)
+    const btnH       = 34;  // approx rendered button height (gold 18px Cinzel + pad)
+    const btnDarkH   = 26;  // dark button (13px Cinzel + pad)
+    const panelW     = 380;
+    const cx         = CANVAS_W / 2;
+
+    // Compute total content height
+    let contentH = titleH + subGap + subH;
+    if (showRetryBtn) contentH += btnGap + btnH;
+    if (showBackBtn)  contentH += (showRetryBtn ? btnGap : btnGap) + btnDarkH;
+
+    const panelH   = padV + contentH + padV;
+    const panelTop = CANVAS_H / 2 - panelH / 2;
+    const panelX   = cx - panelW / 2;
+
+    // Draw panel
+    this.overlayPanel.clear();
+    this.overlayPanel.fillStyle(0x1a1a2e, 0.92);
+    this.overlayPanel.fillRoundedRect(panelX, panelTop, panelW, panelH, 10);
+    this.overlayPanel.lineStyle(1, 0x3a3a5a, 1);
+    this.overlayPanel.strokeRoundedRect(panelX, panelTop, panelW, panelH, 10);
+
+    // Position each element from top of panel
+    let cursor = panelTop + padV;
+
+    this.overlayText.setPosition(cx, cursor + titleH / 2).setText(title).setColor(color).setVisible(true);
+    cursor += titleH + subGap;
+
+    this.overlaySubText.setPosition(cx, cursor + subH / 2).setText(sub).setVisible(true);
+    cursor += subH;
+
+    if (showRetryBtn) {
+      cursor += btnGap;
+      this.retryLevelBtn.setPosition(cx, cursor + btnH / 2);
+      cursor += btnH;
+    }
+    this.retryLevelBtn.setVisible(showRetryBtn);
+
+    if (showBackBtn) {
+      cursor += btnGap;
+      this.backToMapBtn.setPosition(cx, cursor + btnDarkH / 2);
+    }
     this.backToMapBtn.setVisible(showBackBtn);
   }
 
   _hideOverlay() {
     this.overlayGraphics.clear();
+    this.overlayPanel.clear();
     this.overlayText.setVisible(false);
     this.overlaySubText.setVisible(false);
+    this.retryLevelBtn.setVisible(false);
     this.backToMapBtn.setVisible(false);
   }
 
@@ -285,6 +349,78 @@ export default class LevelScene extends Phaser.Scene {
     const el = document.getElementById('statusbar');
     el.textContent = msg;
     el.className   = style;
+  }
+
+  // ─── Enemy preview ───────────────────────────────────────────────────────
+
+  _buildEnemyPreview() {
+    const pool        = this.levelConfig.spawnPool;
+    const totalWeight = pool.reduce((s, e) => s + e.weight, 0);
+    const perWave     = this.enemiesPerWave;
+    const pad = 10, rowH = 44, iconSize = 36;
+    const cardW = 160;
+    const cardH = pad + pool.length * rowH + pad;
+    const cx = 8, cy = 48; // below quitBtn
+
+    const objects = [];
+
+    const titleH  = 20;
+    const totalH  = cardH + titleH;
+
+    const gfx = this.add.graphics().setDepth(901);
+    gfx.fillStyle(0x0d1117, 0.85);
+    gfx.fillRoundedRect(cx, cy, cardW, totalH, 6);
+    gfx.lineStyle(1, 0x2a2a4a, 1);
+    gfx.strokeRoundedRect(cx, cy, cardW, totalH, 6);
+    gfx.lineStyle(1, 0x2a2a4a, 1);
+    gfx.beginPath();
+    gfx.moveTo(cx + 8, cy + titleH);
+    gfx.lineTo(cx + cardW - 8, cy + titleH);
+    gfx.strokePath();
+    objects.push(gfx);
+
+    const waveLabel = this.add.text(cx + cardW / 2, cy + titleH / 2, `Wave ${this.wave + 1} enemies`, {
+      fontSize: '10px', fontFamily: 'Cinzel', color: '#f0c040',
+    }).setOrigin(0.5, 0.5).setDepth(902);
+    objects.push(waveLabel);
+
+    const closeBtn = this.add.text(cx + cardW - 8, cy + 4, '✕', {
+      fontSize: '10px', fontFamily: 'Cinzel', color: '#888888',
+    }).setOrigin(1, 0).setDepth(902).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerover', () => closeBtn.setStyle({ color: '#ffffff' }));
+    closeBtn.on('pointerout',  () => closeBtn.setStyle({ color: '#888888' }));
+    closeBtn.on('pointerdown', () => this._dismissEnemyPreview());
+    objects.push(closeBtn);
+
+    pool.forEach(({ type, weight }, i) => {
+      const def   = ENEMY_TYPES[type];
+      const count = Math.max(1, Math.round((weight / totalWeight) * perWave));
+      const ry    = cy + titleH + pad + i * rowH;
+
+      const icon = this.add.sprite(cx + pad + iconSize / 2, ry + rowH / 2, def.key)
+        .setScale(def.displayScale * 0.22)
+        .setDepth(902);
+      icon.play(`${def.key}_walk`);
+      objects.push(icon);
+
+      const label = this.add.text(cx + pad + iconSize + 8, ry + 6, def.key.charAt(0).toUpperCase() + def.key.slice(1), {
+        fontSize: '11px', fontFamily: 'Cinzel', color: '#cccccc',
+      }).setDepth(902);
+      objects.push(label);
+
+      const stats = this.add.text(cx + pad + iconSize + 8, ry + 22, `HP ${def.hp}  ×${count}/wave`, {
+        fontSize: '10px', fontFamily: 'Cinzel', color: '#888888',
+      }).setDepth(902);
+      objects.push(stats);
+    });
+
+    return objects;
+  }
+
+  _dismissEnemyPreview() {
+    if (!this._enemyPreview) return;
+    for (const obj of this._enemyPreview) obj.destroy();
+    this._enemyPreview = null;
   }
 
   // ─── Animations ──────────────────────────────────────────────────────────
@@ -374,7 +510,7 @@ export default class LevelScene extends Phaser.Scene {
     for (const t of this.turrets) {
       if (Math.hypot(x - t.cx, y - t.cy) < SELL_HIT_R) {
         const def = TURRET_TYPES[t.type];
-        this.previewGraphics.lineStyle(1, 0xf0c040, 0.5);
+        this.previewGraphics.lineStyle(1, def.bulletColor, 0.5);
         this.previewGraphics.strokeEllipse(t.cx, t.cy, def.range * 2, def.range, 64);
         this._setStatusBar('Click to sell tower', 'valid');
         return;
@@ -553,7 +689,8 @@ export default class LevelScene extends Phaser.Scene {
 
   // ─── Button factory ───────────────────────────────────────────────────────
 
-  _makeButton(x, y, label, style, depth, onPress, opts = {}) {
+  _makeButton(bx0, by0, label, style, depth, onPress, opts = {}) {
+    let x = bx0, y = by0;
     const origin = opts.origin ?? 0.5;
     const shadow = opts.shadow ?? true;
 
@@ -564,7 +701,7 @@ export default class LevelScene extends Phaser.Scene {
     const pal = palettes[style] ?? palettes.dark;
 
     const pad = { x: style === 'gold' ? 18 : 14, y: style === 'gold' ? 8 : 6 };
-    const fontSize = style === 'gold' ? '18px' : '13px';
+    const fontSize = opts.fontSize ?? (style === 'gold' ? '18px' : '13px');
 
     const txt = this.add.text(0, 0, label, {
       fontSize, fontFamily: 'Cinzel', color: pal.text,
@@ -607,8 +744,9 @@ export default class LevelScene extends Phaser.Scene {
     txt.on('pointerup',    () => draw(false, true));
 
     return {
-      setVisible(v) { gfx.setVisible(v); txt.setVisible(v); return this; },
-      setText(t)    { txt.setText(t); draw(false, false); return this; },
+      setVisible(v)      { gfx.setVisible(v); txt.setVisible(v); return this; },
+      setText(t)         { txt.setText(t); draw(false, false); return this; },
+      setPosition(nx, ny){ x = nx; y = ny; draw(false, false); return this; },
       _gfx: gfx, _txt: txt,
     };
   }
@@ -778,6 +916,8 @@ export default class LevelScene extends Phaser.Scene {
       bulletSpeed:  def.bulletSpeed,
       bulletColor:  def.bulletColor,
       bulletType:   def.bulletType,
+      arcHeight:    def.arcHeight ?? 0,
+      arcDuration:  def.arcDuration ?? 0,
       aimAngle:     0,
     });
   }
@@ -878,7 +1018,7 @@ export default class LevelScene extends Phaser.Scene {
     this._updateHUD();
     if (this.lives <= 0) {
       this.phase = 'gameover';
-      this._showOverlay('GAME OVER', `Score: ${this.score}`, '#ff4444', true);
+      this._showOverlay('GAME OVER', `Score: ${this.score}`, '#ff4444', true, true);
       this.startWaveBtn.setVisible(false);
     } else {
       this._checkWaveComplete();
@@ -975,51 +1115,138 @@ export default class LevelScene extends Phaser.Scene {
           sprite = this.add.image(t.cx, t.cy, 'arrow').setScale(1.125);
         }
         sprite.setDepth(600);
-        this.bullets.push({
-          x: t.cx, y: t.cy,
-          targetId: nearest.id,
-          speed: t.bulletSpeed,
-          damage: t.damage,
-          bulletType: t.bulletType,
-          sprite,
-        });
+        if (t.bulletType === 'arrow') {
+          // Lead the target: predict position after arcDuration seconds
+          const wp     = this.waypoints[nearest.waypointIdx];
+          const wdx    = wp.x - nearest.x;
+          const wdy    = wp.y - nearest.y;
+          const wdist  = Math.sqrt(wdx * wdx + wdy * wdy);
+          const travel = nearest.speed * t.arcDuration;
+          const frac   = wdist > 0 ? Math.min(travel / wdist, 1) : 0;
+          const endX   = nearest.x + wdx * frac;
+          const endY   = nearest.y + wdy * frac;
+          this.bullets.push({
+            bulletType: 'arrow',
+            startX: t.cx, startY: t.cy,
+            endX, endY,
+            arcHeight: t.arcHeight,
+            arcDuration: t.arcDuration,
+            elapsed: 0,
+            damage: t.damage,
+            targetId: nearest.id,
+            sprite,
+          });
+        } else {
+          // Multi-waypoint lead: walk enemy along path for flightTime seconds
+          const odx        = nearest.x - t.cx;
+          const ody        = nearest.y - t.cy;
+          const oDist      = Math.sqrt(odx * odx + ody * ody);
+          const flightTime = oDist / t.bulletSpeed;
+          let remaining    = nearest.speed * flightTime;
+          let px = nearest.x, py = nearest.y;
+          for (let wi = nearest.waypointIdx; wi < this.waypoints.length && remaining > 0; wi++) {
+            const wp   = this.waypoints[wi];
+            const wdx  = wp.x - px;
+            const wdy  = wp.y - py;
+            const wlen = Math.sqrt(wdx * wdx + wdy * wdy);
+            if (wlen <= remaining) {
+              px = wp.x; py = wp.y;
+              remaining -= wlen;
+            } else {
+              px += (wdx / wlen) * remaining;
+              py += (wdy / wlen) * remaining;
+              remaining = 0;
+            }
+          }
+          const toDx = px - t.cx;
+          const toDy = py - t.cy;
+          const toD  = Math.sqrt(toDx * toDx + toDy * toDy);
+          this.bullets.push({
+            bulletType: 'orb',
+            x: t.cx, y: t.cy,
+            vx: (toDx / toD) * t.bulletSpeed,
+            vy: (toDy / toD) * t.bulletSpeed,
+            maxDist: toD + 40,
+            travelled: 0,
+            damage: t.damage,
+            sprite,
+          });
+        }
       }
     }
 
     // Move bullets
     for (let i = this.bullets.length - 1; i >= 0; i--) {
-      const b      = this.bullets[i];
-      const target = this.enemies.find(e => e.id === b.targetId);
-      if (!target || target.dying) {
-        b.sprite.destroy();
-        this.bullets.splice(i, 1);
-        continue;
-      }
+      const b = this.bullets[i];
 
-      const dx   = target.x - b.x;
-      const dy   = target.y - b.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (b.bulletType === 'arrow') {
+        b.elapsed += dt;
+        const tRaw = b.elapsed / b.arcDuration;
 
-      if (dist < 8) {
-        b.sprite.destroy();
-        target.hp -= b.damage;
-        this.bullets.splice(i, 1);
-        if (target.hp <= 0 && !target.dying) {
-          this.killEnemy(target);
-        } else if (!target.dying && target.sprite.anims.currentAnim?.key !== `${target.type}_hurt`) {
-          target.sprite.removeAllListeners('animationcomplete');
-          target.sprite.play(`${target.type}_hurt`);
-          target.sprite.once('animationcomplete', () => {
-            if (!target.dying) target.sprite.play(`${target.type}_walk`);
-          });
+        if (tRaw >= 1) {
+          // Arrival — damage nearest enemy within 20px of landing point
+          b.sprite.destroy();
+          this.bullets.splice(i, 1);
+          const hit = this.enemies.find(e => !e.dying &&
+            Math.sqrt((e.x - b.endX) ** 2 + (e.y - b.endY) ** 2) < 25);
+          if (hit) {
+            hit.hp -= b.damage;
+            if (hit.hp <= 0 && !hit.dying) {
+              this.killEnemy(hit);
+            } else if (!hit.dying && hit.sprite.anims.currentAnim?.key !== `${hit.type}_hurt`) {
+              hit.sprite.removeAllListeners('animationcomplete');
+              hit.sprite.play(`${hit.type}_hurt`);
+              hit.sprite.once('animationcomplete', () => {
+                if (!hit.dying) hit.sprite.play(`${hit.type}_walk`);
+              });
+            }
+          }
+          continue;
         }
-        continue;
-      }
 
-      b.x += (dx / dist) * b.speed * dt;
-      b.y += (dy / dist) * b.speed * dt;
-      b.sprite.setPosition(b.x, b.y);
-      if (b.bulletType !== 'orb') b.sprite.setRotation(Math.atan2(dy, dx));
+        const tc   = Math.min(tRaw, 1);
+        const prevT = Math.max(0, tc - 0.01);
+        const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
+        const px = b.startX + (b.endX - b.startX) * tc   + 0;
+        const py = b.startY + (b.endY - b.startY) * tc   + arcY(tc);
+        const qx = b.startX + (b.endX - b.startX) * prevT;
+        const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
+        b.sprite.setPosition(px, py);
+        b.sprite.setRotation(Math.atan2(py - qy, px - qx));
+
+      } else {
+        // Fixed-trajectory orb
+        const stepX = b.vx * dt;
+        const stepY = b.vy * dt;
+        b.x += stepX;
+        b.y += stepY;
+        b.travelled += Math.sqrt(stepX * stepX + stepY * stepY);
+        b.sprite.setPosition(b.x, b.y);
+        b.sprite.setRotation(Math.atan2(b.vy, b.vx));
+
+        if (b.travelled >= b.maxDist) {
+          b.sprite.destroy();
+          this.bullets.splice(i, 1);
+          continue;
+        }
+
+        const hit = this.enemies.find(e => !e.dying &&
+          Math.sqrt((e.x - b.x) ** 2 + (e.y - b.y) ** 2) < 15);
+        if (hit) {
+          b.sprite.destroy();
+          this.bullets.splice(i, 1);
+          hit.hp -= b.damage;
+          if (hit.hp <= 0 && !hit.dying) {
+            this.killEnemy(hit);
+          } else if (!hit.dying && hit.sprite.anims.currentAnim?.key !== `${hit.type}_hurt`) {
+            hit.sprite.removeAllListeners('animationcomplete');
+            hit.sprite.play(`${hit.type}_hurt`);
+            hit.sprite.once('animationcomplete', () => {
+              if (!hit.dying) hit.sprite.play(`${hit.type}_walk`);
+            });
+          }
+        }
+      }
     }
 
     this._drawEntities();
