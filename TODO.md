@@ -3,7 +3,7 @@
 ## Turrets
 - [x] Mage tower type (second turret type)
 - [ ] Tower upgrade tiers (3 tiers per type)
-- [ ] Bullet trajectory — arrows curve (arc), mage orbs travel straight
+- [x] Bullet trajectory — arrows arc with lead targeting; orbs travel straight with multi-waypoint lead
 
 ## Levels
 - [ ] Level start preview popup showing enemies for that level (below Return to Map button)

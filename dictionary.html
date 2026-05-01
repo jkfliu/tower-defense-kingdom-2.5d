@@ -64,6 +64,9 @@
     .level-meta span { color: #e8d0a0; }
     .level-unbuilt { display: flex; align-items: center; justify-content: center; height: 80px; font-size: 11px; color: #333; border-radius: 4px; background: #0a0a14; }
 
+    .subtitle a { color: #e8d8a0; text-decoration: none; opacity: 0.8; }
+    .subtitle a:hover { color: #f0c040; opacity: 1; }
+
     a.back { display: inline-block; margin-bottom: 24px; color: #f0c040; text-decoration: none; font-size: 12px; letter-spacing: 0.05em; }
     a.back:hover { color: #ffe080; }
   </style>
@@ -72,15 +75,15 @@
 
 <a class="back" href="index.html">← Back to game</a>
 <h1>Sylvan Defenders 2.5D</h1>
-<p class="subtitle">Game Dictionary — Levels · Towers · Enemies</p>
+<p class="subtitle">Game Dictionary — <a href="#levels">Levels</a> · <a href="#towers">Towers</a> · <a href="#enemies">Enemies</a></p>
 
-<h2>🗺 Levels</h2>
+<h2 id="levels">🗺 Levels</h2>
 <div class="grid" id="levels-grid"></div>
 
-<h2>🏰 Towers</h2>
+<h2 id="towers">🏰 Towers</h2>
 <div class="grid" id="towers-grid"></div>
 
-<h2>👹 Enemies</h2>
+<h2 id="enemies">👹 Enemies</h2>
 <div class="grid" id="enemies-grid"></div>
 
 <script>

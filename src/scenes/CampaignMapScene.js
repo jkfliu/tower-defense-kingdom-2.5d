@@ -91,6 +91,14 @@ export default class CampaignMapScene extends Phaser.Scene {
       stroke: '#000000', strokeThickness: 5,
     }).setOrigin(0.5, 0.5).setDepth(15);
 
+    const dictBtn = this.add.text(CANVAS_W - 14, 14, '?', {
+      fontSize: '18px', fontFamily: 'Cinzel', color: '#888888',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(1, 0).setDepth(15).setInteractive({ useHandCursor: true });
+    dictBtn.on('pointerover', () => dictBtn.setStyle({ color: '#f0c040' }));
+    dictBtn.on('pointerout',  () => dictBtn.setStyle({ color: '#888888' }));
+    dictBtn.on('pointerdown', () => { window.open('dictionary.html', '_blank'); });
+
     // Input
     this.input.on('pointerdown', (p) => this._onPointerDown(p));
     this.input.on('pointermove', (p) => this._onPointerMove(p));
