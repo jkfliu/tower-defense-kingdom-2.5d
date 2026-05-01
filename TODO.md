@@ -1,8 +1,12 @@
 # TODO
 
 ## Turrets
-- [ ] Mage tower type (second turret type)
+- [x] Mage tower type (second turret type)
 - [ ] Tower upgrade tiers (3 tiers per type)
+- [ ] Bullet trajectory — arrows curve (arc), mage orbs travel straight
+
+## Levels
+- [ ] Level start preview popup showing enemies for that level (below Return to Map button)
 
 ## Audio
 - [ ] Web Audio (arrow shot, enemy death sounds)

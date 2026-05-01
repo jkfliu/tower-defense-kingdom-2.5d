@@ -2,11 +2,8 @@ export const TURRET_TYPES = {
   basic: {
     key: 'basic',
     label: 'Archer Tower',
-    spritesheet: 'assets/TowerArcher.png',
-    frameWidth: 843,
-    frameHeight: 1067,
-    frameIndex: 0,       // first frame = vines variant
-    displayScale: 0.08,  // scale down to fit tile world
+    image: 'assets/Firefly_Gemini_archer_tower.128x128.png',
+    displayScale: 0.6,
     cost: 40,
     range: 180,
     minSpacing: 120,
@@ -14,5 +11,20 @@ export const TURRET_TYPES = {
     damage: 25,
     bulletSpeed: 260,
     bulletColor: 0xffdd00,
+    bulletType: 'arrow',
+  },
+  mage: {
+    key: 'mage',
+    label: 'Mage Tower',
+    image: 'assets/Firefly_Gemini_mage_tower.128x128.png',
+    displayScale: 0.7,
+    cost: 70,
+    range: 120,
+    minSpacing: 120,
+    fireRate: 1400,
+    damage: 75,
+    bulletSpeed: 120,
+    bulletColor: 0x9933ff,
+    bulletType: 'orb',
   },
 };

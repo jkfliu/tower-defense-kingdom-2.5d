@@ -21,12 +21,17 @@ export default class LevelScene extends Phaser.Scene {
       });
     }
     for (const turret of Object.values(TURRET_TYPES)) {
-      this.load.spritesheet(`turret_${turret.key}`, turret.spritesheet, {
-        frameWidth: turret.frameWidth,
-        frameHeight: turret.frameHeight,
-      });
+      if (turret.image) {
+        this.load.image(`turret_${turret.key}`, turret.image);
+      } else {
+        this.load.spritesheet(`turret_${turret.key}`, turret.spritesheet, {
+          frameWidth: turret.frameWidth,
+          frameHeight: turret.frameHeight,
+        });
+      }
     }
     this.load.image('arrow', 'assets/Arrow_01.png');
+    this.load.image('orb', 'assets/Ecto_Orb.png');
   }
 
   create(data = {}) {
@@ -157,6 +162,7 @@ export default class LevelScene extends Phaser.Scene {
       }
     });
 
+    this.input.keyboard.on('keydown-S', () => { this._startWave(); });
     this.input.keyboard.on('keydown-R', () => {
       if (this.phase === 'victory' || this.phase === 'gameover') {
         this._goToMap();
@@ -382,10 +388,12 @@ export default class LevelScene extends Phaser.Scene {
     this.previewGraphics.lineStyle(1, isValid ? 0x00ff88 : 0xff4444, isValid ? 0.7 : (inZone ? 0.7 : 0.3));
     this.previewGraphics.strokeEllipse(x, y, TILE_W * 2, TILE_H * 2);
 
-    if (isValid) {
-      const defaultRange = allTypes[0].range;
-      this.previewGraphics.lineStyle(1, 0x00ff88, 0.3);
-      this.previewGraphics.strokeEllipse(x, y, defaultRange * 2, defaultRange, 64);
+    if (inZone && !tooClose) {
+      for (const def of allTypes) {
+        if (this.gold < def.cost) continue;
+        this.previewGraphics.lineStyle(1, def.bulletColor, 0.4);
+        this.previewGraphics.strokeEllipse(x, y, def.range * 2, def.range, 64);
+      }
     }
 
     if (!inZone) {
@@ -768,6 +776,7 @@ export default class LevelScene extends Phaser.Scene {
       damage:       def.damage,
       bulletSpeed:  def.bulletSpeed,
       bulletColor:  def.bulletColor,
+      bulletType:   def.bulletType,
       aimAngle:     0,
     });
   }
@@ -958,14 +967,19 @@ export default class LevelScene extends Phaser.Scene {
       if (nearest) {
         t.fireCooldown = t.fireRate;
         t.aimAngle = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
-        const sprite = this.add.image(t.cx, t.cy, 'arrow');
-        sprite.setScale(1.125);
+        let sprite;
+        if (t.bulletType === 'orb') {
+          sprite = this.add.image(t.cx, t.cy, 'orb').setScale(0.18);
+        } else {
+          sprite = this.add.image(t.cx, t.cy, 'arrow').setScale(1.125);
+        }
         sprite.setDepth(600);
         this.bullets.push({
           x: t.cx, y: t.cy,
           targetId: nearest.id,
           speed: t.bulletSpeed,
           damage: t.damage,
+          bulletType: t.bulletType,
           sprite,
         });
       }
@@ -1004,7 +1018,7 @@ export default class LevelScene extends Phaser.Scene {
       b.x += (dx / dist) * b.speed * dt;
       b.y += (dy / dist) * b.speed * dt;
       b.sprite.setPosition(b.x, b.y);
-      b.sprite.setRotation(Math.atan2(dy, dx));
+      if (b.bulletType !== 'orb') b.sprite.setRotation(Math.atan2(dy, dx));
     }
 
     this._drawEntities();
