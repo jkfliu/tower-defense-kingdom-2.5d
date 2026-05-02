@@ -1,4 +1,4 @@
-import { CANVAS_W, CANVAS_H, scaleX, scaleY, DEFAULT_LIVES, DEFAULT_WAVES } from '../constants.js';
+import { CANVAS_W, CANVAS_H, scaleX, scaleY, DEFAULT_LIVES, DEFAULT_WAVES, DEV_MODE } from '../constants.js';
 import { LEVELS } from '../data/levels.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
@@ -11,8 +11,13 @@ const TILE_H       = 18;
 export default class LevelScene extends Phaser.Scene {
   constructor() { super('LevelScene'); }
 
+  init(data = {}) {
+    this._initLevelId = data.levelId ?? 0;
+    if (this.textures.exists('bg')) this.textures.remove('bg');
+  }
+
   preload() {
-    const level = LEVELS[0]; // background is shared for now — all levels use level 0's map
+    const level = LEVELS[Math.min(this._initLevelId, LEVELS.length - 1)];
     this.load.image('bg', level.background);
     for (const enemy of Object.values(ENEMY_TYPES)) {
       this.load.spritesheet(enemy.key, enemy.spritesheet, {
@@ -40,10 +45,8 @@ export default class LevelScene extends Phaser.Scene {
     document.getElementById('hud').style.display       = '';
     document.getElementById('statusbar').style.display = '';
 
-    // Support levelId passed from MapScene; fall back to level 0
-    const levelId = data.levelId ?? 0;
-    this._currentLevel = data.currentLevel ?? levelId; // campaign progress
-    this.levelConfig = LEVELS[Math.min(levelId, LEVELS.length - 1)];
+    this._currentLevel = data.currentLevel ?? this._initLevelId;
+    this.levelConfig   = LEVELS[Math.min(this._initLevelId, LEVELS.length - 1)];
 
     this._buildAnims();
 
@@ -61,12 +64,13 @@ export default class LevelScene extends Phaser.Scene {
     // Economy & game state
     this.gold        = this.levelConfig.startGold ?? 100;
     this.lives       = this.levelConfig.lives      ?? DEFAULT_LIVES;
-    this.totalWaves  = this.levelConfig.waves       ?? DEFAULT_WAVES;
-    this.wave        = 0;
-    this.score       = 0;
-    this.phase       = 'placing'; // 'placing' | 'wave' | 'between' | 'gameover' | 'victory'
+    this._waveConfig     = this.levelConfig.waveConfig ?? null;
+    this.totalWaves      = this._waveConfig?.length ?? (this.levelConfig.waves ?? DEFAULT_WAVES);
+    this.wave            = 0;
+    this.score           = 0;
+    this.phase           = 'placing'; // 'placing' | 'wave' | 'between' | 'gameover' | 'victory'
     this.spawnedCount    = 0;
-    this.enemiesPerWave  = this.levelConfig.enemiesPerWave ?? 8;
+    this._applyWaveConfig(0);
     this.spawnTimer      = 0;
     this.spawnInterval   = this._nextSpawnDelay();
     this._betweenTimer   = 0;
@@ -125,30 +129,38 @@ export default class LevelScene extends Phaser.Scene {
     this.debugGraphics.setVisible(false);
 
     this.editorMode     = false;
-    this.editorText     = this.add.text(8, 8, 'EDITOR', {
+    this.editorText     = this.add.text(CANVAS_W - 8, 8, 'EDITOR', {
       fontSize: '13px', fontFamily: 'Cinzel', color: '#00ff88',
       stroke: '#000000', strokeThickness: 3,
-    }).setVisible(false).setDepth(1100);
+    }).setOrigin(1, 0).setVisible(false).setDepth(1100);
 
     // _drag: { type: 'path', idx } | { type: 'zone', zoneIdx, vertIdx }
     this._drag          = null;
+    this._dragMoved     = false;
     this._lastClickTime = 0;
     this._lastClickX    = 0;
     this._lastClickY    = 0;
 
     this.input.on('pointermove', (p) => {
-      if (this.editorMode && this._drag) {
+      if (this.editorMode && this._drag && p.isDown) {
+        this._dragMoved = true;
         const pt = { x: Math.round(p.x), y: Math.round(p.y) };
         if (this._drag.type === 'path') {
           this.waypoints[this._drag.idx] = pt;
+          this._setStatusBar(`Waypoint ${this._drag.idx}: ${pt.x}, ${pt.y}`, 'neutral');
         } else {
           this.levelConfig.placementZones[this._drag.zoneIdx][this._drag.vertIdx] = pt;
+          this._setStatusBar(`Zone ${this._drag.zoneIdx} vertex ${this._drag.vertIdx}: ${pt.x}, ${pt.y}`, 'neutral');
         }
         this._redrawDebug();
+        this.previewGraphics.clear();
+        return;
       }
 
-      if (this._towerPopup) this._drawPlacementPreview(this._towerPopup.x, this._towerPopup.y);
-      else this._drawPlacementPreview(p.x, p.y);
+      if (!this._drag) {
+        if (this._towerPopup) this._drawPlacementPreview(this._towerPopup.x, this._towerPopup.y);
+        else this._drawPlacementPreview(p.x, p.y);
+      }
     });
 
     this._onMouseLeave = () => {
@@ -171,14 +183,22 @@ export default class LevelScene extends Phaser.Scene {
     });
 
     this.input.on('pointerup', () => {
-      if (this._drag) {
+      if (this._drag && this._dragMoved) {
         if (this._drag.type === 'path') this._logWaypoints();
         else this._logZones();
-        this._drag = null;
-        this._redrawDebug();
+        this._dragMoved = false;
       }
     });
 
+    this._registerKeyboard();
+
+    this._updateHUD();
+    this._setStatusBar('Click to place Tower · Start Wave button to begin', 'valid');
+  }
+
+  // ─── Keyboard input ───────────────────────────────────────────────────────
+
+  _registerKeyboard() {
     this.input.keyboard.on('keydown-S', () => { this._startWave(); });
     this.input.keyboard.on('keydown-R', () => {
       if (this.phase === 'victory' || this.phase === 'gameover') {
@@ -193,6 +213,17 @@ export default class LevelScene extends Phaser.Scene {
       this.pauseText.setVisible(this.paused);
       this._setStatusBar(this.paused ? 'Game Paused' : 'Game Resumed', 'valid');
     });
+    if (DEV_MODE) {
+      this._registerDevKeys();
+      this._registerEditorKeys();
+    }
+  }
+
+  _registerDevKeys() {
+    this.input.keyboard.on('keydown-F', () => {
+      if (this.phase === 'gameover' || this.phase === 'victory') return;
+      this._triggerVictory();
+    });
     this.input.keyboard.on('keydown-D', () => {
       this.debug = !this.debug;
       this.debugGraphics.setVisible(this.debug || this.editorMode);
@@ -200,6 +231,9 @@ export default class LevelScene extends Phaser.Scene {
       this._setStatusBar(this.debug ? 'Debug Mode On' : 'Debug Mode Off', 'valid');
       document.getElementById('info-debug').classList.toggle('info-active', this.debug);
     });
+  }
+
+  _registerEditorKeys() {
     this.input.keyboard.on('keydown-E', () => {
       this.editorMode = !this.editorMode;
       this.editorText.setVisible(this.editorMode);
@@ -214,9 +248,7 @@ export default class LevelScene extends Phaser.Scene {
       this._drag = null;
       this._redrawDebug();
     });
-
-
-    this.input.keyboard.on('keydown-DELETE', () => {
+    const onDelete = () => {
       if (!this.editorMode || !this._drag) return;
       if (this._drag.type === 'path') {
         if (this.waypoints.length > 2) {
@@ -235,10 +267,9 @@ export default class LevelScene extends Phaser.Scene {
           this._logZones();
         }
       }
-    });
-
-    this._updateHUD();
-    this._setStatusBar('Click to place Tower · Start Wave button to begin', 'valid');
+    };
+    this.input.keyboard.on('keydown-DELETE',    onDelete);
+    this.input.keyboard.on('keydown-BACKSPACE',  onDelete);
   }
 
   // ─── Wave / phase management ──────────────────────────────────────────────
@@ -246,6 +277,7 @@ export default class LevelScene extends Phaser.Scene {
   _startWave() {
     if (this.phase !== 'placing') return;
     this.wave++;
+    this._applyWaveConfig(this.wave - 1);
     this.spawnedCount = 0;
     this.spawnTimer   = 0;
     this.phase        = 'wave';
@@ -253,6 +285,23 @@ export default class LevelScene extends Phaser.Scene {
     this._hideOverlay();
     this._dismissEnemyPreview();
     this._updateHUD();
+  }
+
+  _applyWaveConfig(waveIdx) {
+    if (this._waveConfig && this._waveConfig[waveIdx]) {
+      const wc = this._waveConfig[waveIdx];
+      this.enemiesPerWave = wc.enemiesPerWave;
+      this.spawnPool      = wc.spawnPool;
+    } else {
+      this.enemiesPerWave = this.levelConfig.enemiesPerWave ?? 8;
+      this.spawnPool      = this.levelConfig.spawnPool ?? [];
+    }
+  }
+
+  _triggerVictory() {
+    this.phase = 'victory';
+    this._showOverlay('LEVEL COMPLETE', `Score: ${this.score}`, '#f0c040', true);
+    this.startWaveBtn.setVisible(false);
   }
 
   _enterPlacingPhase() {
@@ -359,9 +408,10 @@ export default class LevelScene extends Phaser.Scene {
   // ─── Enemy preview ───────────────────────────────────────────────────────
 
   _buildEnemyPreview() {
-    const pool        = this.levelConfig.spawnPool;
+    const nextWc      = this._waveConfig?.[this.wave];
+    const pool        = nextWc ? nextWc.spawnPool : this.spawnPool;
     const totalWeight = pool.reduce((s, e) => s + e.weight, 0);
-    const perWave     = this.enemiesPerWave;
+    const perWave     = nextWc ? nextWc.enemiesPerWave : this.enemiesPerWave;
     const pad = 10, rowH = 44, iconSize = 36;
     const cardW = 160;
     const cardH = pad + pool.length * rowH + pad;
@@ -561,27 +611,39 @@ export default class LevelScene extends Phaser.Scene {
     this._lastClickY    = p.y;
 
     const zones = this.levelConfig.placementZones;
+    const pt    = { x: Math.round(p.x), y: Math.round(p.y) };
 
+    // Hit-test waypoints
     for (let i = 0; i < this.waypoints.length; i++) {
       const { x, y } = this.waypoints[i];
       if (Math.hypot(p.x - x, p.y - y) <= 12) {
-        this._drag = { type: 'path', idx: i };
+        const alreadySelected = this._drag?.type === 'path' && this._drag.idx === i;
+        this._drag = alreadySelected ? null : { type: 'path', idx: i };
+        this._dragMoved = false;
         this._redrawDebug();
         return;
       }
     }
 
+    // Hit-test zone vertices
     for (let zi = 0; zi < zones.length; zi++) {
       for (let vi = 0; vi < zones[zi].length; vi++) {
         const { x, y } = zones[zi][vi];
         if (Math.hypot(p.x - x, p.y - y) <= 12) {
-          this._drag = { type: 'zone', zoneIdx: zi, vertIdx: vi };
+          const alreadySelected = this._drag?.type === 'zone' && this._drag.zoneIdx === zi && this._drag.vertIdx === vi;
+          this._drag = alreadySelected ? null : { type: 'zone', zoneIdx: zi, vertIdx: vi };
+          this._dragMoved = false;
           this._redrawDebug();
           return;
         }
       }
     }
 
+    // Clicked empty space — clear selection
+    this._drag = null;
+    this._redrawDebug();
+
+    // Double-click on a path segment inserts a new waypoint
     if (dblClick) {
       let bestPath = { dist: Infinity, idx: -1 };
       for (let i = 0; i < this.waypoints.length - 1; i++) {
@@ -589,26 +651,23 @@ export default class LevelScene extends Phaser.Scene {
         if (d < bestPath.dist) bestPath = { dist: d, idx: i };
       }
       if (bestPath.dist < 20) {
-        this.waypoints.splice(bestPath.idx + 1, 0, { x: Math.round(p.x), y: Math.round(p.y) });
+        this.waypoints.splice(bestPath.idx + 1, 0, pt);
         this._redrawDebug();
         this._logWaypoints();
         return;
       }
-    }
 
-    if (dblClick) {
-      let best = { dist: Infinity, zoneIdx: -1, vertIdx: -1 };
+      // Double-click on a zone edge inserts a new zone vertex
+      let bestZone = { dist: Infinity, zoneIdx: -1, vertIdx: -1 };
       for (let zi = 0; zi < zones.length; zi++) {
         const zone = zones[zi];
         for (let vi = 0; vi < zone.length; vi++) {
-          const a = zone[vi];
-          const b = zone[(vi + 1) % zone.length];
-          const d = this._distToSegment(p.x, p.y, a, b);
-          if (d < best.dist) best = { dist: d, zoneIdx: zi, vertIdx: vi };
+          const d = this._distToSegment(p.x, p.y, zone[vi], zone[(vi + 1) % zone.length]);
+          if (d < bestZone.dist) bestZone = { dist: d, zoneIdx: zi, vertIdx: vi };
         }
       }
-      if (best.dist < 20) {
-        zones[best.zoneIdx].splice(best.vertIdx + 1, 0, { x: Math.round(p.x), y: Math.round(p.y) });
+      if (bestZone.dist < 20) {
+        zones[bestZone.zoneIdx].splice(bestZone.vertIdx + 1, 0, pt);
         this._redrawDebug();
         this._logZones();
       }
@@ -943,7 +1002,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _pickEnemyType() {
-    const pool = this.levelConfig.spawnPool;
+    const pool = this.spawnPool;
     const totalWeight = pool.reduce((sum, e) => sum + e.weight, 0);
     let r = Math.random() * totalWeight;
     for (const entry of pool) {
@@ -1154,7 +1213,7 @@ export default class LevelScene extends Phaser.Scene {
     const px   = b.startX + (b.endX - b.startX) * tc;
     const py   = b.startY + (b.endY - b.startY) * tc + arcY(tc);
     b.sprite.setPosition(px, py);
-    b.sprite.setRotation(b.elapsed * 4);
+    b.sprite.setRotation(b.elapsed * 5);
   }
 
   _spawnExplosion(x, y, radius) {
@@ -1170,9 +1229,7 @@ export default class LevelScene extends Phaser.Scene {
     if (this.enemies.length > 0) return;
 
     if (this.wave >= this.totalWaves) {
-      this.phase = 'victory';
-      this._showOverlay('LEVEL COMPLETE', `Score: ${this.score}`, '#f0c040', true);
-      this.startWaveBtn.setVisible(false);
+      this._triggerVictory();
     } else {
       this.phase = 'between';
       this._betweenTimer = 0;

@@ -1,4 +1,4 @@
-import { CANVAS_W, CANVAS_H } from './constants.js';
+import { CANVAS_W, CANVAS_H, DEV_MODE } from './constants.js';
 import CampaignMapScene from './scenes/CampaignMapScene.js';
 import LevelScene from './scenes/LevelScene.js';
 
@@ -13,3 +13,7 @@ const config = {
 };
 
 new Phaser.Game(config);
+
+if (DEV_MODE) {
+  document.getElementById('info-dev').style.display = 'inline';
+}

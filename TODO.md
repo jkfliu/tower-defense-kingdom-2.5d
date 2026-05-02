@@ -2,10 +2,18 @@
 
 ## Turrets
 - [ ] Tower upgrade tiers (3 tiers per type)
+- [ ] Mage Tower unlocked at Level 2 (locked/greyed out before then)
+- [ ] Bomber Tower unlocked at Level 3 (locked/greyed out before then)
 
 ## Levels
 - [ ] Difficulty select in campaign map level popup (Easy / Normal / Hard)
 - [ ] Add additional levels (Level 2 onwards)
+
+## Enemies
+- [ ] Add a new enemy type (TBD)
+
+## Assets
+- [ ] Find ground explosion sprite for Bomber Tower impact (currently using programmatic ellipse flash)
 
 ## Audio
 - [ ] Web Audio (arrow shot, enemy death sounds)
