@@ -109,7 +109,7 @@ const CAMPAIGN_LEVELS = [
 const LEVELS = [
   {
     campaignId: 0,
-    background: 'assets/levels/level1-background.png',
+    background: 'assets/levels/L1-Map-ForestOutpost.png',
     waypoints: [
       bgPt(289,310), bgPt(357,381), bgPt(422,441), bgPt(493,460),
       bgPt(569,457), bgPt(648,457), bgPt(725,483), bgPt(771,518),
@@ -190,12 +190,25 @@ const TURRET_TYPES = [
     image: 'assets/towers/Firefly_Gemini_mage_tower.128x128.png',
     displayScale: 0.7,
     cost: 70,
-    range: 120,
+    range: 170,
     fireRate: 1400,
-    damage: 75,
+    damage: 100,
     bulletSpeed: 120,
     bulletColor: '#9933ff',
     bulletType: 'orb',
+  },
+  {
+    key: 'bomber',
+    label: 'Bomber Tower',
+    image: 'assets/towers/Firefly_Gemini_bomber_tower.128x128.png',
+    displayScale: 0.6,
+    cost: 100,
+    range: 160,
+    fireRate: 2500,
+    damage: 60,
+    splashRadius: 60,
+    bulletColor: '#ff6600',
+    bulletType: 'bomb',
   },
 ];
 
@@ -221,6 +234,7 @@ const ENEMY_TYPES = [
     speed: { base: 40, variance: 20 },
     hp: 200,
     goldReward: 20,
+    damageResist: { orb: 0.9 },
     walkRow: 1, walkFrames: 8, walkFrameRate: 10,
   },
 ];
@@ -252,7 +266,7 @@ for (const t of TURRET_TYPES) {
     Damage: <span>${t.damage}</span><br>
     Fire rate: <span>${(1000 / t.fireRate).toFixed(1)}/s</span><br>
     Range: <span>${t.range}px</span><br>
-    Bullet: <span><span class="bullet-dot" style="background:${t.bulletColor}"></span>${t.bulletType}</span>
+    Bullet: <span>${t.bulletType}</span>${t.splashRadius ? `<br>Splash: <span>${t.splashRadius}px</span>` : ''}
   `;
   card.appendChild(stats);
 
@@ -283,7 +297,7 @@ for (const e of ENEMY_TYPES) {
   stats.innerHTML = `
     HP: <span>${e.hp}</span><br>
     Speed: <span>${e.speed.base}–${e.speed.base + e.speed.variance}px/s</span><br>
-    Gold: <span>${e.goldReward}g</span>
+    Gold: <span>${e.goldReward}g</span>${e.damageResist ? '<br>' + Object.entries(e.damageResist).map(([k,v]) => `Resist Magic: <span>${Math.round((1-v)*100)}%</span>`).join('<br>') : ''}
   `;
   card.appendChild(stats);
 

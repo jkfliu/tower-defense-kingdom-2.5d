@@ -16,7 +16,7 @@ export const CAMPAIGN_LEVELS = [
 export const LEVELS = [
   {
     id: 'level-1',
-    background: 'assets/levels/level1-background.png',
+    background: 'assets/levels/L1-Map-ForestOutpost.png',
     waypoints: [
       bgPt(289, 310),
       bgPt(357, 381),

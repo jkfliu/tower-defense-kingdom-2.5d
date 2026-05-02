@@ -30,8 +30,9 @@ export default class LevelScene extends Phaser.Scene {
         });
       }
     }
-    this.load.image('arrow', 'assets/towers/Arrow_01.png');
-    this.load.image('orb', 'assets/towers/Ecto_Orb.png');
+    this.load.image('arrow', 'assets/towers/Arrow.png');
+    this.load.image('orb',   'assets/towers/Ecto_Orb.png');
+    this.load.image('bomb',  'assets/towers/Bomb.png');
   }
 
   create(data = {}) {
@@ -54,6 +55,7 @@ export default class LevelScene extends Phaser.Scene {
     this.turrets    = [];
     this.enemies    = [];
     this.bullets    = [];
+    this.explosions = [];
     this.enemyId    = 0;
 
     // Economy & game state
@@ -156,6 +158,8 @@ export default class LevelScene extends Phaser.Scene {
     this.game.canvas.addEventListener('mouseleave', this._onMouseLeave);
     this.events.once('shutdown', () => {
       this.game.canvas.removeEventListener('mouseleave', this._onMouseLeave);
+      this.explosions.forEach(ex => ex.gfx.destroy());
+      this.explosions = [];
     });
 
     this.input.on('pointerdown', (p) => {
@@ -914,8 +918,9 @@ export default class LevelScene extends Phaser.Scene {
       bulletSpeed:  def.bulletSpeed,
       bulletColor:  def.bulletColor,
       bulletType:   def.bulletType,
-      arcHeight:    def.arcHeight ?? 0,
-      arcDuration:  def.arcDuration ?? 0,
+      arcHeight:    def.arcHeight    ?? 0,
+      arcDuration:  def.arcDuration  ?? 0,
+      splashRadius: def.splashRadius ?? 0,
       aimAngle:     0,
     });
   }
@@ -991,8 +996,9 @@ export default class LevelScene extends Phaser.Scene {
     });
   }
 
-  _applyHit(enemy, damage) {
-    enemy.hp -= damage;
+  _applyHit(enemy, damage, bulletType) {
+    const resist = (bulletType && ENEMY_TYPES[enemy.type]?.damageResist?.[bulletType]) ?? 1;
+    enemy.hp -= damage * resist;
     if (enemy.hp <= 0 && !enemy.dying) {
       this.killEnemy(enemy);
     } else if (!enemy.dying && enemy.sprite.anims.currentAnim?.key !== `${enemy.type}_hurt`) {
@@ -1026,7 +1032,7 @@ export default class LevelScene extends Phaser.Scene {
 
   _fireArrow(t, nearest) {
     const { x: endX, y: endY } = this._predictPath(nearest, t.arcDuration);
-    const sprite = this.add.image(t.cx, t.cy, 'arrow').setScale(1.125).setDepth(600);
+    const sprite = this.add.image(t.cx, t.cy, 'arrow').setScale(1).setDepth(600);
     this.bullets.push({
       bulletType: 'arrow',
       startX: t.cx, startY: t.cy,
@@ -1048,7 +1054,7 @@ export default class LevelScene extends Phaser.Scene {
     const toDx = px - t.cx;
     const toDy = py - t.cy;
     const toD  = Math.sqrt(toDx * toDx + toDy * toDy);
-    const sprite = this.add.image(t.cx, t.cy, 'orb').setScale(0.18).setDepth(600);
+    const sprite = this.add.image(t.cx, t.cy, 'orb').setScale(0.2).setDepth(600);
     this.bullets.push({
       bulletType: 'orb',
       x: t.cx, y: t.cy,
@@ -1070,7 +1076,7 @@ export default class LevelScene extends Phaser.Scene {
       this.bullets.splice(i, 1);
       const hit = this.enemies.find(e => !e.dying &&
         Math.sqrt((e.x - b.endX) ** 2 + (e.y - b.endY) ** 2) < 25);
-      if (hit) this._applyHit(hit, b.damage);
+      if (hit) this._applyHit(hit, b.damage, b.bulletType);
       return;
     }
 
@@ -1105,8 +1111,57 @@ export default class LevelScene extends Phaser.Scene {
     if (hit) {
       b.sprite.destroy();
       this.bullets.splice(i, 1);
-      this._applyHit(hit, b.damage);
+      this._applyHit(hit, b.damage, b.bulletType);
     }
+  }
+
+  _fireBomb(t, nearest) {
+    const { x: endX, y: endY } = this._predictPath(nearest, t.arcDuration);
+    const sprite = this.add.image(t.cx, t.cy, 'bomb').setScale(0.25).setDepth(600);
+    this.bullets.push({
+      bulletType: 'bomb',
+      startX: t.cx, startY: t.cy,
+      endX, endY,
+      arcHeight: t.arcHeight,
+      arcDuration: t.arcDuration,
+      elapsed: 0,
+      damage: t.damage,
+      splashRadius: t.splashRadius,
+      sprite,
+    });
+  }
+
+  _updateBomb(b, dt, i) {
+    b.elapsed += dt;
+    const tRaw = b.elapsed / b.arcDuration;
+
+    if (tRaw >= 1) {
+      b.sprite.destroy();
+      this.bullets.splice(i, 1);
+      for (const e of this.enemies) {
+        if (e.dying) continue;
+        const dx = e.x - b.endX, dy = e.y - b.endY;
+        if (Math.sqrt(dx * dx + dy * dy) < b.splashRadius) {
+          this._applyHit(e, b.damage, 'bomb');
+        }
+      }
+      this._spawnExplosion(b.endX, b.endY, b.splashRadius);
+      return;
+    }
+
+    const tc   = Math.min(tRaw, 1);
+    const arcY = (t) => -b.arcHeight * 4 * t * (1 - t);
+    const px   = b.startX + (b.endX - b.startX) * tc;
+    const py   = b.startY + (b.endY - b.startY) * tc + arcY(tc);
+    b.sprite.setPosition(px, py);
+    b.sprite.setRotation(b.elapsed * 4);
+  }
+
+  _spawnExplosion(x, y, radius) {
+    const gfx = this.add.graphics().setDepth(650);
+    gfx.fillStyle(0xff6600, 1);
+    gfx.fillEllipse(x, y, radius * 2, radius);
+    this.explosions.push({ x, y, radius, elapsed: 0, duration: 0.5, gfx });
   }
 
   _checkWaveComplete() {
@@ -1145,6 +1200,9 @@ export default class LevelScene extends Phaser.Scene {
     if (this.paused) return;
     if (this.phase === 'gameover' || this.phase === 'victory') return;
 
+    const dt = delta / 1000;
+    this._updateExplosions(dt);
+
     // Between-wave pause (~2s) then return to placing
     if (this.phase === 'between') {
       this._betweenTimer += delta;
@@ -1158,7 +1216,6 @@ export default class LevelScene extends Phaser.Scene {
     // Placing phase: static — no spawning, no movement
     if (this.phase === 'placing') return;
 
-    const dt = delta / 1000;
     this._updateSpawning(delta);
     this._updateEnemies(dt);
     this._updateTurrets(delta);
@@ -1225,8 +1282,9 @@ export default class LevelScene extends Phaser.Scene {
       if (nearest) {
         t.fireCooldown = t.fireRate;
         t.aimAngle = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
-        if (t.bulletType === 'arrow') this._fireArrow(t, nearest);
-        else                          this._fireOrb(t, nearest);
+        if (t.bulletType === 'arrow')    this._fireArrow(t, nearest);
+        else if (t.bulletType === 'bomb') this._fireBomb(t, nearest);
+        else                              this._fireOrb(t, nearest);
       }
     }
   }
@@ -1234,8 +1292,22 @@ export default class LevelScene extends Phaser.Scene {
   _updateBullets(dt) {
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
-      if (b.bulletType === 'arrow') this._updateArrow(b, dt, i);
-      else                          this._updateOrb(b, dt, i);
+      if (b.bulletType === 'arrow')    this._updateArrow(b, dt, i);
+      else if (b.bulletType === 'bomb') this._updateBomb(b, dt, i);
+      else                              this._updateOrb(b, dt, i);
+    }
+  }
+
+  _updateExplosions(dt) {
+    for (let i = this.explosions.length - 1; i >= 0; i--) {
+      const ex = this.explosions[i];
+      ex.elapsed += dt;
+      const t = Math.min(ex.elapsed / ex.duration, 1);
+      ex.gfx.clear();
+      ex.gfx.fillStyle(0xff6600, 1 - t);
+      const r = ex.radius * (1 - t * 0.4);
+      ex.gfx.fillEllipse(ex.x, ex.y, r * 2, r);
+      if (t >= 1) { ex.gfx.destroy(); this.explosions.splice(i, 1); }
     }
   }
 
