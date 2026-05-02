@@ -39,7 +39,7 @@ export const TURRET_TYPES = {
     minSpacing: 120,
     fireRate: 2500,
     damage: 60,
-    splashRadius: 60,
+    splashRadius: 50,
     bulletColor: 0xff6600,
     bulletType: 'bomb',
     arcDuration: 1.0,

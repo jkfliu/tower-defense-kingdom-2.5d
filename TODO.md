@@ -7,7 +7,8 @@
 
 ## Levels
 - [ ] Difficulty select in campaign map level popup (Easy / Normal / Hard)
-- [ ] Add additional levels (Level 2 onwards)
+- [ ] Add additional levels (Level 3 onwards)
+- [ ] Multi-path support — enemies split across branching routes (requires data model change: `waypoints` → `paths[]`, enemy assigned a path on spawn, editor extended to edit multiple paths)
 
 ## Enemies
 - [ ] Add a new enemy type (TBD)
@@ -36,6 +37,7 @@
 - [x] Structured waves with placing phase
 - [x] Lives system (enemies reaching end cost 1 life)
 - [x] Gold economy (enemies drop gold, towers cost gold)
+- [x] Add Level 2 (Goblin Warren) with map, waypoints, placement zones, per-wave difficulty
 
 ### Enemies
 - [x] Set up enemy Orcs

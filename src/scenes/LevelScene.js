@@ -38,6 +38,9 @@ export default class LevelScene extends Phaser.Scene {
     this.load.image('arrow', 'assets/towers/Arrow.png');
     this.load.image('orb',   'assets/towers/Ecto_Orb.png');
     this.load.image('bomb',  'assets/towers/Bomb.png');
+    this.load.spritesheet('bomb_explosion', 'assets/towers/Bomb_Explosion.png', {
+      frameWidth: 64, frameHeight: 64,
+    });
   }
 
   create(data = {}) {
@@ -58,7 +61,6 @@ export default class LevelScene extends Phaser.Scene {
     this.turrets    = [];
     this.enemies    = [];
     this.bullets    = [];
-    this.explosions = [];
     this.enemyId    = 0;
 
     // Economy & game state
@@ -170,8 +172,6 @@ export default class LevelScene extends Phaser.Scene {
     this.game.canvas.addEventListener('mouseleave', this._onMouseLeave);
     this.events.once('shutdown', () => {
       this.game.canvas.removeEventListener('mouseleave', this._onMouseLeave);
-      this.explosions.forEach(ex => ex.gfx.destroy());
-      this.explosions = [];
     });
 
     this.input.on('pointerdown', (p) => {
@@ -496,6 +496,15 @@ export default class LevelScene extends Phaser.Scene {
           repeat: def.repeat,
         });
       }
+    }
+
+    if (!this.anims.exists('bomb_explosion')) {
+      this.anims.create({
+        key: 'bomb_explosion',
+        frames: this.anims.generateFrameNumbers('bomb_explosion', { start: 0, end: 23 }),
+        frameRate: 20,
+        repeat: 0,
+      });
     }
   }
 
@@ -1217,10 +1226,12 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _spawnExplosion(x, y, radius) {
-    const gfx = this.add.graphics().setDepth(650);
-    gfx.fillStyle(0xff6600, 1);
-    gfx.fillEllipse(x, y, radius * 2, radius);
-    this.explosions.push({ x, y, radius, elapsed: 0, duration: 0.5, gfx });
+    const scale = (radius * 2) / 64;
+    const sprite = this.add.sprite(x, y, 'bomb_explosion')
+      .setDepth(650)
+      .setScale(scale, scale * 0.5);
+    sprite.play('bomb_explosion');
+    sprite.once('animationcomplete', () => sprite.destroy());
   }
 
   _checkWaveComplete() {
@@ -1258,8 +1269,6 @@ export default class LevelScene extends Phaser.Scene {
     if (this.phase === 'gameover' || this.phase === 'victory') return;
 
     const dt = delta / 1000;
-    this._updateExplosions(dt);
-
     // Between-wave pause (~2s) then return to placing
     if (this.phase === 'between') {
       this._betweenTimer += delta;
@@ -1355,18 +1364,6 @@ export default class LevelScene extends Phaser.Scene {
     }
   }
 
-  _updateExplosions(dt) {
-    for (let i = this.explosions.length - 1; i >= 0; i--) {
-      const ex = this.explosions[i];
-      ex.elapsed += dt;
-      const t = Math.min(ex.elapsed / ex.duration, 1);
-      ex.gfx.clear();
-      ex.gfx.fillStyle(0xff6600, 1 - t);
-      const r = ex.radius * (1 - t * 0.4);
-      ex.gfx.fillEllipse(ex.x, ex.y, r * 2, r);
-      if (t >= 1) { ex.gfx.destroy(); this.explosions.splice(i, 1); }
-    }
-  }
 
   // ─── Entity rendering ─────────────────────────────────────────────────────
 
