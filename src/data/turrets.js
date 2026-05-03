@@ -1,6 +1,6 @@
 export const TURRET_TYPES = {
-  basic: {
-    key: 'basic',
+  arrow: {
+    key: 'arrow',
     label: 'Archer Tower',
     image: 'assets/towers/Firefly_Gemini_archer_tower.128x128.png',
     displayScale: 0.6,
@@ -12,6 +12,7 @@ export const TURRET_TYPES = {
     bulletSpeed: 260,
     bulletColor: 0xffdd00,
     bulletType: 'arrow',
+    hitRadius: 15,
     arcDuration: 0.5,
     arcHeight: 60,
   },
@@ -28,6 +29,7 @@ export const TURRET_TYPES = {
     bulletSpeed: 120,
     bulletColor: 0x9933ff,
     bulletType: 'orb',
+    hitRadius: 20,
   },
   bomber: {
     key: 'bomber',

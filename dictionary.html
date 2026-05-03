@@ -94,29 +94,26 @@ const scaleX = CANVAS_W / NATIVE_W, scaleY = CANVAS_H / NATIVE_H;
 function bgPt(x, y) { return { x: Math.round(x * scaleX), y: Math.round(y * scaleY) }; }
 
 const CAMPAIGN_LEVELS = [
-  { id: 0, name: 'Forest Outpost',  startGold: 100, waves: 3, enemiesPerWave: 8,  description: 'Goblins raid from the treeline. Hold the outpost at all costs.' },
-  { id: 1, name: 'Goblin Warren',   startGold: 110, waves: 3, enemiesPerWave: 10, description: 'The goblins have dug in deep. Root them out before they multiply.' },
-  { id: 2, name: 'Mudflats',        startGold: 120, waves: 3, enemiesPerWave: 10, description: 'Orcs wade through the marshes. Slow them in the mud or be overwhelmed.' },
-  { id: 3, name: 'Stoneback Ridge', startGold: 135, waves: 4, enemiesPerWave: 10, description: 'Trolls hurl boulders from the ridgeline. Reach them before they reach you.' },
-  { id: 4, name: 'Troll Bridge',    startGold: 150, waves: 4, enemiesPerWave: 12, description: 'A horde crosses the old stone bridge. Destroy it or hold the line.' },
-  { id: 5, name: 'Shadowfen',       startGold: 165, waves: 4, enemiesPerWave: 12, description: 'Dark Elves emerge from the fen at dusk. They move fast — be ready.' },
-  { id: 6, name: 'Ashwood',         startGold: 180, waves: 5, enemiesPerWave: 12, description: 'The forest burns. Demons fan the flames while dark elves harry your flanks.' },
-  { id: 7, name: 'Cursed Ruins',    startGold: 200, waves: 5, enemiesPerWave: 14, description: 'Demons have consecrated the ruins. Purge them or lose the east forever.' },
-  { id: 8, name: 'Demon Gate',      startGold: 220, waves: 5, enemiesPerWave: 14, description: 'The gate tears open. Wave after wave pours through. Hold until dawn.' },
-  { id: 9, name: 'Volcano Summit',  startGold: 250, waves: 5, enemiesPerWave: 16, description: "The demon lord commands from the volcano's peak. End this — now." },
+  { id: 0, name: 'Forest Outpost',  startGold: 100, waves: 3, waveSizes: [6,9,12],    description: 'Goblins raid from the treeline. Hold the outpost at all costs.' },
+  { id: 1, name: 'Goblin Warren',   startGold: 120, waves: 3, waveSizes: [8,11,14],   description: 'The goblins have dug in deep. Root them out before they multiply.' },
+  { id: 2, name: 'Mudflats',        startGold: 140, waves: 3, description: 'Orcs wade through the marshes. Slow them in the mud or be overwhelmed.' },
+  { id: 3, name: 'Stoneback Ridge', startGold: 135, waves: 4, description: 'Trolls hurl boulders from the ridgeline. Reach them before they reach you.' },
+  { id: 4, name: 'Troll Bridge',    startGold: 150, waves: 4, description: 'A horde crosses the old stone bridge. Destroy it or hold the line.' },
+  { id: 5, name: 'Shadowfen',       startGold: 165, waves: 4, description: 'Dark Elves emerge from the fen at dusk. They move fast — be ready.' },
+  { id: 6, name: 'Ashwood',         startGold: 180, waves: 5, description: 'The forest burns. Demons fan the flames while dark elves harry your flanks.' },
+  { id: 7, name: 'Cursed Ruins',    startGold: 200, waves: 5, description: 'Demons have consecrated the ruins. Purge them or lose the east forever.' },
+  { id: 8, name: 'Demon Gate',      startGold: 220, waves: 5, description: 'The gate tears open. Wave after wave pours through. Hold until dawn.' },
+  { id: 9, name: 'Volcano Summit',  startGold: 250, waves: 5, description: "The demon lord commands from the volcano's peak. End this — now." },
 ];
 
 const LEVELS = [
   {
     campaignId: 0,
     background: 'assets/levels/L1-Map-ForestOutpost.png',
-    waypoints: [
-      bgPt(289,310), bgPt(357,381), bgPt(422,441), bgPt(493,460),
-      bgPt(569,457), bgPt(648,457), bgPt(725,483), bgPt(771,518),
-      bgPt(798,565), bgPt(804,607), bgPt(796,647), bgPt(775,675),
-      bgPt(752,702), bgPt(752,743), bgPt(765,780), bgPt(791,836),
-      bgPt(790,901),
-    ],
+  },
+  {
+    campaignId: 1,
+    background: 'assets/levels/L2-Map-GoblinWarren.jpg',
   },
 ];
 
@@ -163,7 +160,8 @@ CAMPAIGN_LEVELS.forEach(cl => {
   const meta = document.createElement('div');
   meta.className = 'level-meta';
   meta.style.marginTop = '8px';
-  meta.innerHTML = `Gold <span>${cl.startGold}g</span> · Waves <span>${cl.waves}</span> · Enemies/wave <span>${cl.enemiesPerWave}</span>`;
+  const wavesStr = cl.waveSizes ? cl.waveSizes.join(' · ') : '—';
+  meta.innerHTML = `Gold <span>${cl.startGold}g</span> · Waves <span>${cl.waves}</span> · Enemies <span>${wavesStr}</span>`;
   card.appendChild(meta);
 
   levelsGrid.appendChild(card);
@@ -172,7 +170,7 @@ CAMPAIGN_LEVELS.forEach(cl => {
 // ─── Tower data ───────────────────────────────────────────────────────────────
 const TURRET_TYPES = [
   {
-    key: 'basic',
+    key: 'arrow',
     label: 'Archer Tower',
     image: 'assets/towers/Firefly_Gemini_archer_tower.128x128.png',
     displayScale: 0.6,
@@ -206,7 +204,7 @@ const TURRET_TYPES = [
     range: 160,
     fireRate: 2500,
     damage: 60,
-    splashRadius: 60,
+    splashRadius: 50,
     bulletColor: '#ff6600',
     bulletType: 'bomb',
   },
@@ -215,27 +213,49 @@ const TURRET_TYPES = [
 // ─── Enemy data ───────────────────────────────────────────────────────────────
 const ENEMY_TYPES = [
   {
+    key: 'slime',
+    label: 'Slime',
+    spritesheet: 'assets/enemies/Slime-shadow.png',
+    frameWidth: 100, frameHeight: 100, sheetCols: 12,
+    displayScale: 1.8,
+    speed: { base: 90, variance: 30 },
+    hp: 60,
+    goldReward: 8,
+    walkRow: 1, walkFrames: 6,
+  },
+  {
     key: 'skeleton',
     label: 'Skeleton',
     spritesheet: 'assets/enemies/Skeleton-shadow.png',
     frameWidth: 100, frameHeight: 100, sheetCols: 8,
-    displayScale: 2.0,
+    displayScale: 1.8,
     speed: { base: 60, variance: 30 },
     hp: 100,
     goldReward: 10,
-    walkRow: 1, walkFrames: 8, walkFrameRate: 10,
+    walkRow: 1, walkFrames: 8,
   },
   {
     key: 'orc',
     label: 'Orc',
     spritesheet: 'assets/enemies/Orc-shadow.png',
     frameWidth: 100, frameHeight: 100, sheetCols: 8,
-    displayScale: 2.0,
+    displayScale: 1.8,
     speed: { base: 40, variance: 20 },
     hp: 200,
     goldReward: 20,
     damageResist: { orb: 0.9 },
-    walkRow: 1, walkFrames: 8, walkFrameRate: 10,
+    walkRow: 1, walkFrames: 8,
+  },
+  {
+    key: 'werebear',
+    label: 'Werebear',
+    spritesheet: 'assets/enemies/Werebear-shadow.png',
+    frameWidth: 100, frameHeight: 100, sheetCols: 13,
+    displayScale: 1.8,
+    speed: { base: 30, variance: 10 },
+    hp: 400,
+    goldReward: 35,
+    walkRow: 1, walkFrames: 8,
   },
 ];
 

@@ -11,10 +11,14 @@
 - [ ] Multi-path support — enemies split across branching routes (requires data model change: `waypoints` → `paths[]`, enemy assigned a path on spawn, editor extended to edit multiple paths)
 
 ## Enemies
-- [ ] Add a new enemy type (TBD)
+- [ ] Add Werebear and Slime to level wave configs (currently defined in enemies.js but not spawned)
 
 ## Assets
 - [ ] Find ground explosion sprite for Bomber Tower impact (currently using programmatic ellipse flash)
+- [ ] Create building/construction tower sprite (shown while tower is being placed or built)
+
+## UI
+- [ ] 'Unlock Preview' popup shown below the Wave Preview popup — teases which tower or enemy is unlocked next
 
 ## Audio
 - [ ] Web Audio (arrow shot, enemy death sounds)

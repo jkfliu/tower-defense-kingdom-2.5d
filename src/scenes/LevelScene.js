@@ -1,18 +1,23 @@
 import { CANVAS_W, CANVAS_H, scaleX, scaleY, DEFAULT_LIVES, DEFAULT_WAVES, DEV_MODE } from '../constants.js';
-import { LEVELS } from '../data/levels.js';
+import { LEVELS, CAMPAIGN_LEVELS, getUnlocks } from '../data/levels.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
+import { makeButton } from '../utils/button.js';
+import { FocusGroup } from '../utils/FocusGroup.js';
 
-const SELL_HIT_R   = 28;
-const WP_HIT_R     = 30;
-const TILE_W       = 32;
-const TILE_H       = 18;
+const TOWER_SELL_HIT_R  = 28;
+const WP_HIT_R          = 30;
+const PLACEMENT_TILE_W  = 32;
+const PLACEMENT_TILE_H  = 18;
 
 export default class LevelScene extends Phaser.Scene {
   constructor() { super('LevelScene'); }
 
   init(data = {}) {
     this._initLevelId = data.levelId ?? 0;
+    const { towers, enemies } = getUnlocks(data.currentLevel ?? data.levelId ?? 0);
+    this._unlockedTowers  = towers;
+    this._unlockedEnemies = enemies;
     if (this.textures.exists('bg')) this.textures.remove('bg');
   }
 
@@ -20,6 +25,7 @@ export default class LevelScene extends Phaser.Scene {
     const level = LEVELS[Math.min(this._initLevelId, LEVELS.length - 1)];
     this.load.image('bg', level.background);
     for (const enemy of Object.values(ENEMY_TYPES)) {
+      if (!this._unlockedEnemies.has(enemy.key)) continue;
       this.load.spritesheet(enemy.key, enemy.spritesheet, {
         frameWidth: enemy.frameWidth,
         frameHeight: enemy.frameHeight,
@@ -64,12 +70,13 @@ export default class LevelScene extends Phaser.Scene {
     this.enemyId    = 0;
 
     // Economy & game state
-    this.gold        = this.levelConfig.startGold ?? 100;
+    this.gold        = CAMPAIGN_LEVELS[this._initLevelId]?.startGold ?? 100;
     this.lives       = this.levelConfig.lives      ?? DEFAULT_LIVES;
     this._waveConfig     = this.levelConfig.waveConfig ?? null;
     this.totalWaves      = this._waveConfig?.length ?? (this.levelConfig.waves ?? DEFAULT_WAVES);
     this.wave            = 0;
-    this.score           = 0;
+    this.score              = data.campaignScore ?? 0;
+    this._scoreAtLevelStart = this.score;
     this.phase           = 'placing'; // 'placing' | 'wave' | 'between' | 'gameover' | 'victory'
     this.spawnedCount    = 0;
     this._applyWaveConfig(0);
@@ -106,7 +113,7 @@ export default class LevelScene extends Phaser.Scene {
 
     this.retryLevelBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 96, '↺  Retry Level', 'gold', 1300, () => {
       const levelId = LEVELS.indexOf(this.levelConfig);
-      this.scene.start('LevelScene', { levelId, currentLevel: this._currentLevel });
+      this.scene.start('LevelScene', { levelId, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart });
     });
     this.retryLevelBtn.setVisible(false);
 
@@ -114,12 +121,13 @@ export default class LevelScene extends Phaser.Scene {
     this.backToMapBtn.setVisible(false);
 
     this.quitBtn = this._makeButton(8, 8, '← Map', 'dark', 900, () => this.scene.start('CampaignMapScene', {
-      currentLevel: this._currentLevel,
+      currentLevel:       this._currentLevel,
       justCompletedLevel: -1,
-      reveal: false,
+      reveal:             false,
+      campaignScore:      this._scoreAtLevelStart,
     }), { origin: 0 });
 
-    this._enemyPreview = this._buildEnemyPreview();
+    this._enterPlacingPhase();
 
     this.paused = false;
     this.pauseText = this.add.text(CANVAS_W / 2, CANVAS_H / 2, 'PAUSED', {
@@ -284,18 +292,31 @@ export default class LevelScene extends Phaser.Scene {
     this.startWaveBtn.setVisible(false);
     this._hideOverlay();
     this._dismissEnemyPreview();
+    this._dismissUnlockPreview();
     this._updateHUD();
   }
 
   _applyWaveConfig(waveIdx) {
-    if (this._waveConfig && this._waveConfig[waveIdx]) {
-      const wc = this._waveConfig[waveIdx];
-      this.enemiesPerWave = wc.enemiesPerWave;
-      this.spawnPool      = wc.spawnPool;
-    } else {
-      this.enemiesPerWave = this.levelConfig.enemiesPerWave ?? 8;
-      this.spawnPool      = this.levelConfig.spawnPool ?? [];
+    const wc = this._waveConfig?.[waveIdx];
+    this.enemiesPerWave = wc?.enemiesPerWave ?? this.levelConfig.enemiesPerWave ?? 8;
+    this.spawnPool = this._buildSpawnPool(waveIdx);
+  }
+
+  _buildSpawnPool(waveIdx) {
+    const campaignLevel  = CAMPAIGN_LEVELS[this._initLevelId];
+    const progression    = campaignLevel?.waveProgression ?? {};
+    const totalWaves     = this.totalWaves;
+    const t = totalWaves > 1 ? waveIdx / (totalWaves - 1) : 0;
+
+    const pool = [];
+    for (const key of this._unlockedEnemies) {
+      const range = progression[key];
+      if (!range) continue;
+      const weight = Math.round(range[0] + (range[1] - range[0]) * t);
+      if (weight > 0) pool.push({ type: key, weight });
     }
+
+    return pool.length > 0 ? pool : [{ type: [...this._unlockedEnemies][0], weight: 1 }];
   }
 
   _triggerVictory() {
@@ -309,6 +330,11 @@ export default class LevelScene extends Phaser.Scene {
     this.startWaveBtn.setText(`▶  Start Wave ${this.wave + 1}`);
     this.startWaveBtn.setVisible(true);
     this._enemyPreview = this._buildEnemyPreview();
+    if (this.wave === 0) {
+      const pool = this._buildSpawnPool(0);
+      const previewBottom = 48 + 20 + 10 + pool.length * 44 + 10;
+      this._unlockPreview = this._buildUnlockPreview(previewBottom);
+    }
     this._updateHUD();
   }
 
@@ -321,6 +347,7 @@ export default class LevelScene extends Phaser.Scene {
       currentLevel:       nextLevel,
       justCompletedLevel: doReveal ? this._currentLevel : -1,
       reveal:             doReveal,
+      campaignScore:      this.phase === 'gameover' ? 0 : this.score,
     });
   }
 
@@ -378,9 +405,19 @@ export default class LevelScene extends Phaser.Scene {
       this.backToMapBtn.setPosition(cx, cursor + btnDarkH / 2);
     }
     this.backToMapBtn.setVisible(showBackBtn);
+
+    // Build FocusGroup for whichever buttons are visible
+    this._overlayFocusGroup?.destroy();
+    this._overlayFocusGroup = null;
+    const overlayBtns = [];
+    if (showRetryBtn) overlayBtns.push({ btn: this.retryLevelBtn, action: () => { const levelId = LEVELS.indexOf(this.levelConfig); this.scene.start('LevelScene', { levelId, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart }); } });
+    if (showBackBtn)  overlayBtns.push({ btn: this.backToMapBtn,  action: () => this._goToMap() });
+    if (overlayBtns.length > 0) this._overlayFocusGroup = new FocusGroup(this, overlayBtns);
   }
 
   _hideOverlay() {
+    this._overlayFocusGroup?.destroy();
+    this._overlayFocusGroup = null;
     this.overlayGraphics.clear();
     this.overlayPanel.clear();
     this.overlayText.setVisible(false);
@@ -409,9 +446,9 @@ export default class LevelScene extends Phaser.Scene {
 
   _buildEnemyPreview() {
     const nextWc      = this._waveConfig?.[this.wave];
-    const pool        = nextWc ? nextWc.spawnPool : this.spawnPool;
+    const pool        = this._buildSpawnPool(this.wave);
     const totalWeight = pool.reduce((s, e) => s + e.weight, 0);
-    const perWave     = nextWc ? nextWc.enemiesPerWave : this.enemiesPerWave;
+    const perWave     = nextWc?.enemiesPerWave ?? this.enemiesPerWave;
     const pad = 10, rowH = 44, iconSize = 36;
     const cardW = 160;
     const cardH = pad + pool.length * rowH + pad;
@@ -478,10 +515,95 @@ export default class LevelScene extends Phaser.Scene {
     this._enemyPreview = null;
   }
 
+  _buildUnlockPreview(belowY) {
+    const prev = getUnlocks(this._currentLevel - 1);
+    const curr = getUnlocks(this._currentLevel);
+    const newTowers  = [...curr.towers ].filter(k => !prev.towers.has(k));
+    const newEnemies = [...curr.enemies].filter(k => !prev.enemies.has(k));
+    if (newTowers.length === 0 && newEnemies.length === 0) return null;
+
+    const items = [
+      ...newTowers .map(k => ({ kind: 'tower', key: k })),
+      ...newEnemies.map(k => ({ kind: 'enemy', key: k })),
+    ];
+
+    const pad = 10, rowH = 40, iconSize = 32, titleH = 20;
+    const cardW = 160;
+    const cardH = titleH + pad + items.length * rowH + pad;
+    const cx = 8, cy = belowY + 8;
+    const objects = [];
+
+    const gfx = this.add.graphics().setDepth(901);
+    gfx.fillStyle(0x0d1117, 0.85);
+    gfx.fillRoundedRect(cx, cy, cardW, cardH, 6);
+    gfx.lineStyle(1, 0x2a3a2a, 1);
+    gfx.strokeRoundedRect(cx, cy, cardW, cardH, 6);
+    gfx.lineStyle(1, 0x2a3a2a, 1);
+    gfx.beginPath();
+    gfx.moveTo(cx + 8, cy + titleH);
+    gfx.lineTo(cx + cardW - 8, cy + titleH);
+    gfx.strokePath();
+    objects.push(gfx);
+
+    const title = this.add.text(cx + cardW / 2, cy + titleH / 2, 'New Unlocks', {
+      fontSize: '10px', fontFamily: 'Cinzel', color: '#88ff88',
+    }).setOrigin(0.5, 0.5).setDepth(902);
+    objects.push(title);
+
+    const closeBtn = this.add.text(cx + cardW - 8, cy + 4, '✕', {
+      fontSize: '10px', fontFamily: 'Cinzel', color: '#888888',
+    }).setOrigin(1, 0).setDepth(902).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerover', () => closeBtn.setStyle({ color: '#ffffff' }));
+    closeBtn.on('pointerout',  () => closeBtn.setStyle({ color: '#888888' }));
+    closeBtn.on('pointerdown', () => this._dismissUnlockPreview());
+    objects.push(closeBtn);
+
+    items.forEach(({ kind, key }, i) => {
+      const ry = cy + titleH + pad + i * rowH;
+      if (kind === 'tower') {
+        const def = TURRET_TYPES[key];
+        const icon = this.add.image(cx + pad + iconSize / 2, ry + rowH / 2, `turret_${key}`)
+          .setScale(def.displayScale * 0.45).setDepth(902);
+        objects.push(icon);
+        const label = this.add.text(cx + pad + iconSize + 8, ry + 4, def.label ?? key, {
+          fontSize: '11px', fontFamily: 'Cinzel', color: '#ccffcc',
+        }).setDepth(902);
+        objects.push(label);
+        const sub = this.add.text(cx + pad + iconSize + 8, ry + 20, 'Tower', {
+          fontSize: '10px', fontFamily: 'Cinzel', color: '#557755',
+        }).setDepth(902);
+        objects.push(sub);
+      } else {
+        const def = ENEMY_TYPES[key];
+        const icon = this.add.sprite(cx + pad + iconSize / 2, ry + rowH / 2, def.key)
+          .setScale(def.displayScale * 0.20).setDepth(902);
+        icon.play(`${def.key}_walk`);
+        objects.push(icon);
+        const label = this.add.text(cx + pad + iconSize + 8, ry + 4, key.charAt(0).toUpperCase() + key.slice(1), {
+          fontSize: '11px', fontFamily: 'Cinzel', color: '#ccffcc',
+        }).setDepth(902);
+        objects.push(label);
+        const sub = this.add.text(cx + pad + iconSize + 8, ry + 20, `HP ${def.hp}`, {
+          fontSize: '10px', fontFamily: 'Cinzel', color: '#557755',
+        }).setDepth(902);
+        objects.push(sub);
+      }
+    });
+
+    return objects;
+  }
+
+  _dismissUnlockPreview() {
+    if (!this._unlockPreview) return;
+    for (const obj of this._unlockPreview) obj.destroy();
+    this._unlockPreview = null;
+  }
+
   // ─── Animations ──────────────────────────────────────────────────────────
 
   _buildAnims() {
     for (const enemy of Object.values(ENEMY_TYPES)) {
+      if (!this._unlockedEnemies.has(enemy.key)) continue;
       for (const def of enemy.animations) {
         const key = `${enemy.key}_${def.key}`;
         if (this.anims.exists(key)) this.anims.remove(key);
@@ -555,7 +677,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _getPlacementState(x, y) {
-    const allTypes  = Object.values(TURRET_TYPES);
+    const allTypes  = Object.values(TURRET_TYPES).filter(t => this._unlockedTowers.has(t.key));
     const minSpace  = Math.min(...allTypes.map(t => t.minSpacing));
     const minCost   = Math.min(...allTypes.map(t => t.cost));
     const inZone    = this.levelConfig.placementZones.some(z => this._pointInPolygon(x, y, z));
@@ -572,7 +694,7 @@ export default class LevelScene extends Phaser.Scene {
 
     // Tower hover — show its range ring
     for (const t of this.turrets) {
-      if (Math.hypot(x - t.cx, y - t.cy) < SELL_HIT_R) {
+      if (Math.hypot(x - t.cx, y - t.cy) < TOWER_SELL_HIT_R) {
         const def = TURRET_TYPES[t.type];
         this.previewGraphics.lineStyle(1, def.bulletColor, 0.5);
         this.previewGraphics.strokeEllipse(t.cx, t.cy, def.range * 2, def.range, 64);
@@ -585,9 +707,9 @@ export default class LevelScene extends Phaser.Scene {
 
     const fillAlpha = isValid ? 0.35 : (inZone ? 0.35 : 0.15);
     this.previewGraphics.fillStyle(isValid ? 0x00ff88 : 0xff4444, fillAlpha);
-    this.previewGraphics.fillEllipse(x, y, TILE_W * 2, TILE_H * 2);
+    this.previewGraphics.fillEllipse(x, y, PLACEMENT_TILE_W * 2, PLACEMENT_TILE_H * 2);
     this.previewGraphics.lineStyle(1, isValid ? 0x00ff88 : 0xff4444, isValid ? 0.7 : (inZone ? 0.7 : 0.3));
-    this.previewGraphics.strokeEllipse(x, y, TILE_W * 2, TILE_H * 2);
+    this.previewGraphics.strokeEllipse(x, y, PLACEMENT_TILE_W * 2, PLACEMENT_TILE_H * 2);
 
     if (inZone && !tooClose) {
       for (const def of allTypes) {
@@ -618,6 +740,14 @@ export default class LevelScene extends Phaser.Scene {
     this._lastClickTime = now;
     this._lastClickX    = p.x;
     this._lastClickY    = p.y;
+
+    // Allow selling towers in editor mode
+    for (const t of this.turrets) {
+      if (Math.hypot(p.x - t.cx, p.y - t.cy) < TOWER_SELL_HIT_R) {
+        this.onTileClick(p);
+        return;
+      }
+    }
 
     const zones = this.levelConfig.placementZones;
     const pt    = { x: Math.round(p.x), y: Math.round(p.y) };
@@ -741,18 +871,24 @@ export default class LevelScene extends Phaser.Scene {
 
     const yesBtn = this._makeButton(CANVAS_W / 2 - 54, ry + H - 28, 'Restart', 'gold', 1401, () => {
       this._hideRestartConfirm();
-      this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel });
+      this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart });
     }, { shadow: false });
     const noBtn = this._makeButton(CANVAS_W / 2 + 54, ry + H - 28, 'Cancel', 'dark', 1401, () => {
       this._hideRestartConfirm();
     }, { shadow: false });
 
-    this._restartConfirm = { gfx, msg, yesBtn, noBtn };
+    const focusGroup = new FocusGroup(this, [
+      { btn: yesBtn, action: () => { this._hideRestartConfirm(); this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart }); } },
+      { btn: noBtn,  action: () => { this._hideRestartConfirm(); } },
+    ], { onEscape: () => this._hideRestartConfirm() });
+
+    this._restartConfirm = { gfx, msg, yesBtn, noBtn, focusGroup };
   }
 
   _hideRestartConfirm() {
     if (!this._restartConfirm) return;
-    const { gfx, msg, yesBtn, noBtn } = this._restartConfirm;
+    const { gfx, msg, yesBtn, noBtn, focusGroup } = this._restartConfirm;
+    focusGroup.destroy();
     gfx.destroy();
     msg.destroy();
     yesBtn._gfx.destroy(); yesBtn._txt.destroy();
@@ -763,65 +899,11 @@ export default class LevelScene extends Phaser.Scene {
   // ─── Button factory ───────────────────────────────────────────────────────
 
   _makeButton(bx0, by0, label, style, depth, onPress, opts = {}) {
-    let x = bx0, y = by0;
-    const origin = opts.origin ?? 0.5;
-    const shadow = opts.shadow ?? true;
-
-    const palettes = {
-      gold: { face: 0xd4a010, hi: 0xffe066, sh: 0x7a5800, text: '#1a0e00' },
-      dark: { face: 0x1e2244, hi: 0x2e3466, sh: 0x080a14, text: '#cccccc' },
-    };
-    const pal = palettes[style] ?? palettes.dark;
-
-    const pad = { x: style === 'gold' ? 18 : 14, y: style === 'gold' ? 8 : 6 };
-    const fontSize = opts.fontSize ?? (style === 'gold' ? '18px' : '13px');
-
-    const txt = this.add.text(0, 0, label, {
-      fontSize, fontFamily: 'Cinzel', color: pal.text,
-    }).setDepth(depth + 1);
-
-    const tw = txt.width  + pad.x * 2;
-    const th = txt.height + pad.y * 2;
-    const gfx = this.add.graphics().setDepth(depth);
-
-    const draw = (pressed, hovered) => {
-      gfx.clear();
-      const face = hovered ? pal.hi : pal.face;
-      const radius = 5;
-      const ox = origin === 0.5 ? -tw / 2 : 0;
-      const oy = origin === 0.5 ? -th / 2 : 0;
-      const bx = x + ox, by = y + oy;
-
-      if (!pressed && shadow) {
-        gfx.fillStyle(pal.sh, 1);
-        gfx.fillRoundedRect(bx + 3, by + 3, tw, th, radius);
-      }
-      gfx.fillStyle(face, 1);
-      gfx.fillRoundedRect(bx + (pressed ? 2 : 0), by + (pressed ? 2 : 0), tw, th, radius);
-      gfx.fillStyle(0xffffff, pressed ? 0 : 0.18);
-      gfx.fillRoundedRect(bx + (pressed ? 2 : 0), by + (pressed ? 2 : 0), tw, radius, { tl: radius, tr: radius, bl: 0, br: 0 });
-      gfx.fillRoundedRect(bx + (pressed ? 2 : 0), by + (pressed ? 2 : 0), radius, th, { tl: radius, tr: 0, bl: radius, br: 0 });
-
-      txt.setPosition(
-        bx + (pressed ? 2 : 0) + pad.x,
-        by + (pressed ? 2 : 0) + pad.y
-      );
-    };
-
-    draw(false, false);
-
-    txt.setInteractive({ useHandCursor: true });
-    txt.on('pointerover',  () => { this._overButton = true;  this.previewGraphics.clear(); this._setStatusBar(''); draw(false, true); });
-    txt.on('pointerout',   () => { this._overButton = false; draw(false, false); });
-    txt.on('pointerdown',  () => { draw(true, false); onPress(); });
-    txt.on('pointerup',    () => draw(false, true));
-
-    return {
-      setVisible(v)      { gfx.setVisible(v); txt.setVisible(v); return this; },
-      setText(t)         { txt.setText(t); draw(false, false); return this; },
-      setPosition(nx, ny){ x = nx; y = ny; draw(false, false); return this; },
-      _gfx: gfx, _txt: txt,
-    };
+    return makeButton(this, bx0, by0, label, style, depth, onPress, {
+      ...opts,
+      onHover: () => { this._overButton = true;  this.previewGraphics.clear(); this._setStatusBar(''); },
+      onOut:   () => { this._overButton = false; },
+    });
   }
 
   // ─── Tower placement ──────────────────────────────────────────────────────
@@ -837,7 +919,7 @@ export default class LevelScene extends Phaser.Scene {
 
     // Hit-test existing turrets first — click on a tower to sell it
     for (const t of this.turrets) {
-      if (Math.hypot(pointer.x - t.cx, pointer.y - t.cy) < SELL_HIT_R) {
+      if (Math.hypot(pointer.x - t.cx, pointer.y - t.cy) < TOWER_SELL_HIT_R) {
         this._openSellPopup(t, pointer.x, pointer.y);
         return;
       }
@@ -872,7 +954,8 @@ export default class LevelScene extends Phaser.Scene {
     const cards = types.map((def, i) => {
       const cx = px + pad + i * (cardW + gap);
       const cy = py + pad + 18;
-      return this._makeCardUI(def, cx, cy, cardW, cardH, x, y);
+      const unlocked = this._unlockedTowers.has(def.key);
+      return this._makeCardUI(def, cx, cy, cardW, cardH, x, y, unlocked);
     });
 
     this._towerPopup = {
@@ -881,31 +964,47 @@ export default class LevelScene extends Phaser.Scene {
     };
   }
 
-  _makeCardUI(def, cx, cy, cardW, cardH, placeX, placeY) {
-    const canAfford = this.gold >= def.cost;
+  _makeCardUI(def, cx, cy, cardW, cardH, placeX, placeY, unlocked = true) {
+    const canAfford = unlocked && this.gold >= def.cost;
 
     const cardGfx = this.add.graphics().setDepth(1001);
     const drawCard = (hovered) => {
       cardGfx.clear();
-      cardGfx.fillStyle(hovered ? 0x224422 : (canAfford ? 0x1a2a1a : 0x2a1a1a), 1);
-      cardGfx.fillRoundedRect(cx, cy, cardW, cardH, 4);
-      cardGfx.lineStyle(1, hovered ? 0x66cc66 : (canAfford ? 0x44aa44 : 0x663333), 1);
+      if (!unlocked) {
+        cardGfx.fillStyle(0x111111, 1);
+        cardGfx.fillRoundedRect(cx, cy, cardW, cardH, 4);
+        cardGfx.lineStyle(1, 0x333333, 1);
+      } else {
+        cardGfx.fillStyle(hovered ? 0x224422 : (canAfford ? 0x1a2a1a : 0x2a1a1a), 1);
+        cardGfx.fillRoundedRect(cx, cy, cardW, cardH, 4);
+        cardGfx.lineStyle(1, hovered ? 0x66cc66 : (canAfford ? 0x44aa44 : 0x663333), 1);
+      }
       cardGfx.strokeRoundedRect(cx, cy, cardW, cardH, 4);
     };
     drawCard(false);
 
     const icon = this.add.image(cx + cardW / 2, cy + 28, `turret_${def.key}`, def.frameIndex)
-      .setScale(def.displayScale * 0.55).setDepth(1002).setAlpha(canAfford ? 1 : 0.4);
+      .setScale(def.displayScale * 0.55).setDepth(1002).setAlpha(unlocked ? (canAfford ? 1 : 0.4) : 0.10);
 
     const nameText = this.add.text(cx + cardW / 2, cy + 54, def.label ?? def.key, {
       fontSize: '11px', fontFamily: 'Cinzel',
-      color: canAfford ? '#ccffcc' : '#996666',
+      color: unlocked ? (canAfford ? '#ccffcc' : '#996666') : '#555555',
     }).setOrigin(0.5, 0).setDepth(1002);
 
-    const costText = this.add.text(cx + cardW / 2, cy + 70, `${def.cost}g`, {
-      fontSize: '13px', fontFamily: 'Cinzel',
-      color: canAfford ? '#f0c040' : '#664444',
-    }).setOrigin(0.5, 0).setDepth(1002);
+    let costText;
+    if (!unlocked) {
+      const unlockLevel = CAMPAIGN_LEVELS.find(cl => cl.unlocks?.towers?.includes(def.key));
+      const label = unlockLevel ? `🔒 ${unlockLevel.name}` : '🔒 Locked';
+      costText = this.add.text(cx + cardW / 2, cy + 68, label, {
+        fontSize: '9px', fontFamily: 'Cinzel', color: '#555555',
+        wordWrap: { width: cardW - 8 },
+      }).setOrigin(0.5, 0).setDepth(1002);
+    } else {
+      costText = this.add.text(cx + cardW / 2, cy + 70, `${def.cost}g`, {
+        fontSize: '13px', fontFamily: 'Cinzel',
+        color: canAfford ? '#f0c040' : '#664444',
+      }).setOrigin(0.5, 0).setDepth(1002);
+    }
 
     const hitZone = this.add.zone(cx, cy, cardW, cardH).setOrigin(0, 0).setDepth(1002).setInteractive({ useHandCursor: canAfford });
     if (canAfford) {
@@ -948,14 +1047,20 @@ export default class LevelScene extends Phaser.Scene {
       this._sellTower(turret);
     }, { shadow: false });
 
+    const focusGroup = new FocusGroup(this, [
+      { btn: sellBtn, action: () => { this._closeTowerPopup(); this._sellTower(turret); } },
+    ], { onEscape: () => this._closeTowerPopup() });
+
     this._towerPopup = {
       x: px, y: py,
       destroyables: [gfx, title, icon, refundText, sellBtn],
+      focusGroup,
     };
   }
 
   _closeTowerPopup() {
     if (!this._towerPopup) return;
+    this._towerPopup.focusGroup?.destroy();
     for (const obj of this._towerPopup.destroyables) {
       if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); }
       else obj?.destroy();
@@ -989,6 +1094,7 @@ export default class LevelScene extends Phaser.Scene {
       arcHeight:    def.arcHeight    ?? 0,
       arcDuration:  def.arcDuration  ?? 0,
       splashRadius: def.splashRadius ?? 0,
+      hitRadius:    def.hitRadius    ?? 20,
       aimAngle:     0,
     });
   }
@@ -1109,6 +1215,7 @@ export default class LevelScene extends Phaser.Scene {
       arcDuration: t.arcDuration,
       elapsed: 0,
       damage: t.damage,
+      hitRadius: t.hitRadius,
       sprite,
     });
   }
@@ -1128,9 +1235,10 @@ export default class LevelScene extends Phaser.Scene {
       x: t.cx, y: t.cy,
       vx: (toDx / toD) * t.bulletSpeed,
       vy: (toDy / toD) * t.bulletSpeed,
-      maxDist: toD + 40,
+      maxDist: Math.min(toD, t.range),
       travelled: 0,
       damage: t.damage,
+      hitRadius: t.hitRadius,
       sprite,
     });
   }
@@ -1143,7 +1251,7 @@ export default class LevelScene extends Phaser.Scene {
       b.sprite.destroy();
       this.bullets.splice(i, 1);
       const hit = this.enemies.find(e => !e.dying &&
-        Math.sqrt((e.x - b.endX) ** 2 + (e.y - b.endY) ** 2) < 25);
+        Math.sqrt((e.x - b.endX) ** 2 + (e.y - b.endY) ** 2) < b.hitRadius);
       if (hit) this._applyHit(hit, b.damage, b.bulletType);
       return;
     }
@@ -1175,7 +1283,7 @@ export default class LevelScene extends Phaser.Scene {
     }
 
     const hit = this.enemies.find(e => !e.dying &&
-      Math.sqrt((e.x - b.x) ** 2 + (e.y - b.y) ** 2) < 15);
+      Math.sqrt((e.x - b.x) ** 2 + (e.y - b.y) ** 2) < b.hitRadius);
     if (hit) {
       b.sprite.destroy();
       this.bullets.splice(i, 1);

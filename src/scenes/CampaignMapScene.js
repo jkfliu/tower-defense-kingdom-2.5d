@@ -1,5 +1,7 @@
 import { CANVAS_W, CANVAS_H } from '../constants.js';
 import { CAMPAIGN_LEVELS } from '../data/levels.js';
+import { makeButton } from '../utils/button.js';
+import { FocusGroup } from '../utils/FocusGroup.js';
 
 const MAP_IMG_W = 1124;
 const MAP_IMG_H = 1124;
@@ -20,6 +22,7 @@ export default class CampaignMapScene extends Phaser.Scene {
     // Campaign progression state (persisted via scene data passing)
     this.currentLevel       = data.currentLevel       ?? 0;
     this.justCompletedLevel = data.justCompletedLevel ?? -1;
+    this.campaignScore      = data.campaignScore      ?? 0;
     this.revealProgress     = 0;
     this._revealing         = data.reveal             ?? false;
 
@@ -58,14 +61,9 @@ export default class CampaignMapScene extends Phaser.Scene {
       fontSize: '14px', fontFamily: 'Cinzel', color: '#5a3c10',
       wordWrap: { width: 320 }, align: 'center',
     }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
-    this._popupBeginBtn = this.add.text(0, 0, 'Begin!', {
-      fontSize: '16px', fontFamily: 'Cinzel', color: '#d4eeaa',
-      backgroundColor: '#1a5c10', padding: { x: 16, y: 6 },
-    }).setOrigin(0.5, 0.5).setDepth(20).setVisible(false)
-      .setInteractive({ useHandCursor: true });
-    this._popupBeginBtn.on('pointerdown', () => this._beginLevel());
-    this._popupBeginBtn.on('pointerover',  () => this._popupBeginBtn.setStyle({ backgroundColor: '#2a8020' }));
-    this._popupBeginBtn.on('pointerout',   () => this._popupBeginBtn.setStyle({ backgroundColor: '#1a5c10' }));
+    this._popupBeginBtn = makeButton(this, 0, 0, 'Begin!', 'gold', 20, () => this._beginLevel(), { shadow: false });
+    this._popupBeginBtn.setVisible(false);
+    this._popupFocusGroup = null;
 
     // Between-wave label text (for reveal)
     this._revealText = this.add.text(CANVAS_W / 2, 32, '', {
@@ -217,10 +215,17 @@ export default class CampaignMapScene extends Phaser.Scene {
     this._popupDesc.setPosition(px + PW / 2, py + titleH + descTop);
     this._popupBeginBtn.setPosition(px + PW / 2, py + titleH + descTop + descH + descBot + pad).setVisible(true);
 
+    this._popupFocusGroup?.destroy();
+    this._popupFocusGroup = new FocusGroup(this, [
+      { btn: this._popupBeginBtn, action: () => this._beginLevel() },
+    ], { onEscape: () => this._closePopup() });
+
     this._popup = { levelId, px, py, PW, PH };
   }
 
   _closePopup() {
+    this._popupFocusGroup?.destroy();
+    this._popupFocusGroup = null;
     this._popup = null;
     this._popupTitle.setVisible(false);
     this._popupDesc.setVisible(false);
@@ -231,8 +236,9 @@ export default class CampaignMapScene extends Phaser.Scene {
     const id = this._popup.levelId;
     this._closePopup();
     this.scene.start('LevelScene', {
-      levelId:      id,
-      currentLevel: this.currentLevel,
+      levelId:       id,
+      currentLevel:  this.currentLevel,
+      campaignScore: this.campaignScore,
     });
   }
 

@@ -1,9 +1,9 @@
 import { bgPt } from '../constants.js';
 
 export const CAMPAIGN_LEVELS = [
-  { id: 0, name: 'Forest Outpost',  mx: 180, my: 155,  icon: 'forest',   startGold: 100, waves: 3, enemiesPerWave: 8,  description: 'Goblins raid from the treeline. Hold the outpost at all costs.' },
-  { id: 1, name: 'Goblin Warren',   mx: 180, my: 290,  icon: 'forest',   startGold: 110, waves: 3, enemiesPerWave: 10, description: 'The goblins have dug in deep. Root them out before they multiply.' },
-  { id: 2, name: 'Mudflats',        mx: 180, my: 430,  icon: 'river',    startGold: 120, waves: 3, enemiesPerWave: 10, description: 'Orcs wade through the marshes. Slow them in the mud or be overwhelmed.' },
+  { id: 0, name: 'Forest Outpost',  mx: 180, my: 155,  icon: 'forest',   startGold: 100, waves: 3, enemiesPerWave: 8,  description: 'Goblins raid from the treeline. Hold the outpost at all costs.',        unlocks: { towers: ['arrow'],   enemies: ['skeleton', 'slime'] }, waveProgression: { skeleton: [5, 2], slime: [2, 4] } },
+  { id: 1, name: 'Goblin Warren',   mx: 180, my: 290,  icon: 'forest',   startGold: 120, waves: 3, enemiesPerWave: 10, description: 'The goblins have dug in deep. Root them out before they multiply.',       unlocks: { towers: ['mage'],    enemies: ['orc'] },             waveProgression: { skeleton: [4, 1], slime: [3, 2], orc: [1, 4] } },
+  { id: 2, name: 'Mudflats',        mx: 180, my: 430,  icon: 'river',    startGold: 140, waves: 3, enemiesPerWave: 10, description: 'Orcs wade through the marshes. Slow them in the mud or be overwhelmed.', unlocks: { towers: ['bomber'],  enemies: ['werebear'] },         waveProgression: { skeleton: [3, 1], slime: [2, 1], orc: [3, 3], werebear: [0, 3] } },
   { id: 3, name: 'Stoneback Ridge', mx: 180, my: 570,  icon: 'mountain', startGold: 135, waves: 4, enemiesPerWave: 10, description: 'Trolls hurl boulders from the ridgeline. Reach them before they reach you.' },
   { id: 4, name: 'Troll Bridge',    mx: 180, my: 710,  icon: 'mountain', startGold: 150, waves: 4, enemiesPerWave: 12, description: 'A horde crosses the old stone bridge. Destroy it or hold the line.' },
   { id: 5, name: 'Shadowfen',       mx: 180, my: 860,  icon: 'village',  startGold: 165, waves: 4, enemiesPerWave: 12, description: 'Dark Elves emerge from the fen at dusk. They move fast — be ready.' },
@@ -12,6 +12,17 @@ export const CAMPAIGN_LEVELS = [
   { id: 8, name: 'Demon Gate',      mx: 750, my: 1020, icon: 'volcano',  startGold: 220, waves: 5, enemiesPerWave: 14, description: 'The gate tears open. Wave after wave pours through. Hold until dawn.' },
   { id: 9, name: 'Volcano Summit',  mx: 940, my: 1040, icon: 'volcano',  startGold: 250, waves: 5, enemiesPerWave: 16, description: "The demon lord commands from the volcano's peak. End this — now." },
 ];
+
+export function getUnlocks(upToLevelId) {
+  const towers = new Set();
+  const enemies = new Set();
+  for (const cl of CAMPAIGN_LEVELS) {
+    if (cl.id > upToLevelId) break;
+    for (const t of cl.unlocks?.towers  ?? []) towers.add(t);
+    for (const e of cl.unlocks?.enemies ?? []) enemies.add(e);
+  }
+  return { towers, enemies };
+}
 
 export const LEVELS = [
   {
@@ -84,12 +95,11 @@ export const LEVELS = [
         bgPt(837, 481),
       ]
     ],
-    startGold: 100,
     spawnDelay: { min: 1500, max: 3500 },
     waveConfig: [
-      { enemiesPerWave: 6,  spawnPool: [{ type: 'skeleton', weight: 5 }, { type: 'orc', weight: 1 }] },
-      { enemiesPerWave: 9,  spawnPool: [{ type: 'skeleton', weight: 3 }, { type: 'orc', weight: 2 }] },
-      { enemiesPerWave: 12, spawnPool: [{ type: 'skeleton', weight: 2 }, { type: 'orc', weight: 3 }] },
+      { enemiesPerWave: 6  },
+      { enemiesPerWave: 9  },
+      { enemiesPerWave: 12 },
     ],
   },
   {
@@ -193,12 +203,11 @@ export const LEVELS = [
         bgPt(359, 45),
       ]
     ],
-    startGold: 110,
     spawnDelay: { min: 1200, max: 3000 },
     waveConfig: [
-      { enemiesPerWave: 8,  spawnPool: [{ type: 'skeleton', weight: 3 }, { type: 'orc', weight: 2 }] },
-      { enemiesPerWave: 11, spawnPool: [{ type: 'skeleton', weight: 2 }, { type: 'orc', weight: 3 }] },
-      { enemiesPerWave: 14, spawnPool: [{ type: 'skeleton', weight: 1 }, { type: 'orc', weight: 4 }] },
+      { enemiesPerWave: 8  },
+      { enemiesPerWave: 11 },
+      { enemiesPerWave: 14 },
     ],
   },
 ];
