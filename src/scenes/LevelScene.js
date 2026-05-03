@@ -24,8 +24,9 @@ export default class LevelScene extends Phaser.Scene {
   preload() {
     const level = LEVELS[Math.min(this._initLevelId, LEVELS.length - 1)];
     this.load.image('bg', level.background);
+    const nextUnlocks = getUnlocks(this._initLevelId + 1);
     for (const enemy of Object.values(ENEMY_TYPES)) {
-      if (!this._unlockedEnemies.has(enemy.key)) continue;
+      if (!this._unlockedEnemies.has(enemy.key) && !nextUnlocks.enemies.has(enemy.key)) continue;
       this.load.spritesheet(enemy.key, enemy.spritesheet, {
         frameWidth: enemy.frameWidth,
         frameHeight: enemy.frameHeight,
@@ -50,12 +51,14 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   create(data = {}) {
+    document.getElementById('hud-level').style.display = '';
+    document.getElementById('hud-main').style.display  = '';
     document.getElementById('info').style.display      = '';
-    document.getElementById('hud').style.display       = '';
     document.getElementById('statusbar').style.display = '';
 
     this._currentLevel = data.currentLevel ?? this._initLevelId;
     this.levelConfig   = LEVELS[Math.min(this._initLevelId, LEVELS.length - 1)];
+    document.getElementById('hud-level').textContent = `Level ${this._initLevelId + 1} — ${CAMPAIGN_LEVELS[this._initLevelId]?.name ?? ''}`;
 
     this._buildAnims();
 
@@ -321,7 +324,16 @@ export default class LevelScene extends Phaser.Scene {
 
   _triggerVictory() {
     this.phase = 'victory';
-    this._showOverlay('LEVEL COMPLETE', `Score: ${this.score}`, '#f0c040', true);
+    const nextLevel = this._currentLevel + 1;
+    const curr = getUnlocks(this._currentLevel);
+    const next = getUnlocks(nextLevel);
+    const newTowers  = [...next.towers ].filter(k => !curr.towers.has(k));
+    const newEnemies = [...next.enemies].filter(k => !curr.enemies.has(k));
+    const unlocks = [
+      ...newTowers .map(k => ({ kind: 'tower', key: k })),
+      ...newEnemies.map(k => ({ kind: 'enemy', key: k })),
+    ];
+    this._showOverlay('LEVEL COMPLETE', `Score: ${this.score}`, '#f0c040', true, false, 42, unlocks);
     this.startWaveBtn.setVisible(false);
   }
 
@@ -351,27 +363,31 @@ export default class LevelScene extends Phaser.Scene {
     });
   }
 
-  _showOverlay(title, sub, color = '#ffffff', showBackBtn = false, showRetryBtn = false, titleSize = 42) {
+  _showOverlay(title, sub, color = '#ffffff', showBackBtn = false, showRetryBtn = false, titleSize = 42, unlocks = []) {
     this.entityGraphics.clear();
     this.overlayGraphics.clear();
     this.overlayGraphics.fillStyle(0x000000, 0.65);
     this.overlayGraphics.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
     // Layout constants
-    const padV       = 28;  // top and bottom panel padding
+    const padV       = 28;
     const titleH     = titleSize;
-    const subGap     = 16;  // title → subtitle
-    const subH       = 18;  // font size
-    const btnGap     = 24;  // subtitle → first button (or between buttons)
-    const btnH       = 34;  // approx rendered button height (gold 18px Cinzel + pad)
-    const btnDarkH   = 26;  // dark button (13px Cinzel + pad)
+    const subGap     = 16;
+    const subH       = 18;
+    const unlockGap  = 14;  // subtitle → unlock section
+    const unlockRowH = 28;
+    const unlockTitleH = 16;
+    const btnGap     = 24;
+    const btnH       = 34;
+    const btnDarkH   = 26;
     const panelW     = 400;
     const cx         = CANVAS_W / 2;
 
     // Compute total content height
     let contentH = titleH + subGap + subH;
+    if (unlocks.length > 0) contentH += unlockGap + unlockTitleH + unlocks.length * unlockRowH;
     if (showRetryBtn) contentH += btnGap + btnH;
-    if (showBackBtn)  contentH += (showRetryBtn ? btnGap : btnGap) + btnDarkH;
+    if (showBackBtn)  contentH += btnGap + btnDarkH;
 
     const panelH   = padV + contentH + padV;
     const panelTop = CANVAS_H / 2 - panelH / 2;
@@ -392,6 +408,49 @@ export default class LevelScene extends Phaser.Scene {
 
     this.overlaySubText.setPosition(cx, cursor + subH / 2).setText(sub).setVisible(true);
     cursor += subH;
+
+    // Destroy any previous unlock objects
+    if (this._overlayUnlockObjects) {
+      for (const o of this._overlayUnlockObjects) o.destroy();
+    }
+    this._overlayUnlockObjects = [];
+
+    if (unlocks.length > 0) {
+      cursor += unlockGap;
+      const unlockTitle = this.add.text(cx, cursor, 'Next Level Unlocks:', {
+        fontSize: '11px', fontFamily: 'Cinzel', color: '#88ff88',
+      }).setOrigin(0.5, 0).setDepth(1301);
+      this._overlayUnlockObjects.push(unlockTitle);
+      cursor += unlockTitleH;
+
+      for (const { kind, key } of unlocks) {
+        const iconSize = 22;
+        const rowY = cursor + unlockRowH / 2;
+        const iconX = cx - 80;
+        const labelX = iconX + iconSize / 2 + 10;
+
+        if (kind === 'tower') {
+          const def = TURRET_TYPES[key];
+          const icon = this.add.image(iconX, rowY, `turret_${key}`)
+            .setScale(def.displayScale * 0.35).setDepth(1302);
+          const label = this.add.text(labelX, rowY, `${def.label ?? key} (Tower)`, {
+            fontSize: '12px', fontFamily: 'Cinzel', color: '#ccffcc',
+          }).setOrigin(0, 0.5).setDepth(1302);
+          this._overlayUnlockObjects.push(icon, label);
+        } else {
+          const def = ENEMY_TYPES[key];
+          const icon = this.add.sprite(iconX, rowY, def.key)
+            .setScale(def.displayScale * 0.16).setDepth(1302);
+          icon.play(`${def.key}_walk`);
+          const name = key.charAt(0).toUpperCase() + key.slice(1);
+          const label = this.add.text(labelX, rowY, `${name} (Enemy)`, {
+            fontSize: '12px', fontFamily: 'Cinzel', color: '#ccffcc',
+          }).setOrigin(0, 0.5).setDepth(1302);
+          this._overlayUnlockObjects.push(icon, label);
+        }
+        cursor += unlockRowH;
+      }
+    }
 
     if (showRetryBtn) {
       cursor += btnGap;
@@ -418,6 +477,10 @@ export default class LevelScene extends Phaser.Scene {
   _hideOverlay() {
     this._overlayFocusGroup?.destroy();
     this._overlayFocusGroup = null;
+    if (this._overlayUnlockObjects) {
+      for (const o of this._overlayUnlockObjects) o.destroy();
+      this._overlayUnlockObjects = [];
+    }
     this.overlayGraphics.clear();
     this.overlayPanel.clear();
     this.overlayText.setVisible(false);
@@ -602,8 +665,9 @@ export default class LevelScene extends Phaser.Scene {
   // ─── Animations ──────────────────────────────────────────────────────────
 
   _buildAnims() {
+    const nextUnlocks = getUnlocks(this._initLevelId + 1);
     for (const enemy of Object.values(ENEMY_TYPES)) {
-      if (!this._unlockedEnemies.has(enemy.key)) continue;
+      if (!this._unlockedEnemies.has(enemy.key) && !nextUnlocks.enemies.has(enemy.key)) continue;
       for (const def of enemy.animations) {
         const key = `${enemy.key}_${def.key}`;
         if (this.anims.exists(key)) this.anims.remove(key);

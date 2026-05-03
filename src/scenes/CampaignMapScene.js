@@ -16,7 +16,8 @@ export default class CampaignMapScene extends Phaser.Scene {
 
   create(data = {}) {
     document.getElementById('info').style.display      = 'none';
-    document.getElementById('hud').style.display       = 'none';
+    document.getElementById('hud-main').style.display  = 'none';
+    document.getElementById('hud-level').style.display = 'none';
     document.getElementById('statusbar').style.display = 'none';
 
     // Campaign progression state (persisted via scene data passing)

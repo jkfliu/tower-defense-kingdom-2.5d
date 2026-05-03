@@ -1,4 +1,4 @@
-export const DEV_MODE = false;
+export const DEV_MODE = new URLSearchParams(window.location.search).get('dev_mode') === '1';
 
 export const CANVAS_W = 900;
 export const CANVAS_H = 560;
