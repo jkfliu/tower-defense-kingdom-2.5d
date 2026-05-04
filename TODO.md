@@ -10,9 +10,10 @@
 
 ## Assets
 - [ ] Create building/construction tower sprite (shown while tower is being placed or built)
+- [ ] Create a flying enemy
 
 ## Audio
-- [ ] Web Audio (arrow shot, enemy death sounds)
+- [ ] Background music (ambient loop per level)
 
 ---
 

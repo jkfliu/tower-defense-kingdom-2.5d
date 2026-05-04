@@ -4,6 +4,7 @@ import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
+import { soundManager } from '../utils/sound.js';
 
 const TOWER_SELL_HIT_R  = 28;
 const WP_HIT_R          = 30;
@@ -1224,6 +1225,7 @@ export default class LevelScene extends Phaser.Scene {
     this._updateHUD();
 
     enemy.sprite.removeAllListeners('animationcomplete');
+    soundManager.playEnemyDeath();
     enemy.sprite.play(`${enemy.type}_death`);
     enemy.sprite.once('animationcomplete', () => {
       enemy.sprite.destroy();
@@ -1239,7 +1241,10 @@ export default class LevelScene extends Phaser.Scene {
     enemy.hp -= damage * resist;
     if (enemy.hp <= 0 && !enemy.dying) {
       this.killEnemy(enemy);
-    } else if (!enemy.dying && enemy.sprite.anims.currentAnim?.key !== `${enemy.type}_hurt`) {
+    } else if (!enemy.dying) {
+      soundManager.playEnemyHit();
+    }
+    if (!enemy.dying && enemy.sprite.anims.currentAnim?.key !== `${enemy.type}_hurt`) {
       enemy.sprite.removeAllListeners('animationcomplete');
       enemy.sprite.play(`${enemy.type}_hurt`);
       enemy.sprite.once('animationcomplete', () => {
@@ -1270,6 +1275,7 @@ export default class LevelScene extends Phaser.Scene {
 
   _fireArrow(t, nearest) {
     const { x: endX, y: endY } = this._predictPath(nearest, t.arcDuration);
+    soundManager.playArrowShot();
     const sprite = this.add.image(t.cx, t.cy, 'arrow').setScale(1).setDepth(600);
     this.bullets.push({
       bulletType: 'arrow',
@@ -1293,6 +1299,7 @@ export default class LevelScene extends Phaser.Scene {
     const toDx = px - t.cx;
     const toDy = py - t.cy;
     const toD  = Math.sqrt(toDx * toDx + toDy * toDy);
+    soundManager.playOrbShot();
     const sprite = this.add.image(t.cx, t.cy, 'orb').setScale(0.2).setDepth(600);
     this.bullets.push({
       bulletType: 'orb',
@@ -1357,6 +1364,7 @@ export default class LevelScene extends Phaser.Scene {
 
   _fireBomb(t, nearest) {
     const { x: endX, y: endY } = this._predictPath(nearest, t.arcDuration);
+    soundManager.playBombShot();
     const sprite = this.add.image(t.cx, t.cy, 'bomb').setScale(0.25).setDepth(600);
     this.bullets.push({
       bulletType: 'bomb',
@@ -1398,6 +1406,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _spawnExplosion(x, y, radius) {
+    soundManager.playExplosion();
     const scale = (radius * 2) / 64;
     const sprite = this.add.sprite(x, y, 'bomb_explosion')
       .setDepth(650)

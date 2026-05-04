@@ -103,6 +103,14 @@ export default class CampaignMapScene extends Phaser.Scene {
     this.input.on('pointermove', (p) => this._onPointerMove(p));
     this.input.on('pointerup',   (p) => this._onPointerUp(p));
     this.input.on('wheel',       (p, _dx, _dy, deltaY) => this._onWheel(p, deltaY));
+
+    const onConfirmKey = () => {
+      if (!this._popup && this.currentLevel < CAMPAIGN_LEVELS.length) {
+        this._openPopup(this.currentLevel);
+      }
+    };
+    this.input.keyboard.on('keydown-ENTER', onConfirmKey);
+    this.input.keyboard.on('keydown-SPACE', onConfirmKey);
   }
 
   // ─── Camera ──────────────────────────────────────────────────────────────────
