@@ -45,6 +45,6 @@ export const TURRET_TYPES = {
     bulletColor: 0xff6600,
     bulletType: 'bomb',
     arcDuration: 1.0,
-    arcHeight: 100,
+    arcHeight: 80,
   },
 };
