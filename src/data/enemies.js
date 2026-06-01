@@ -9,6 +9,8 @@ export const ENEMY_TYPES = {
     speed: { base: 60, variance: 30 },
     hp: 100,
     goldReward: 10,
+    meleeDamage: 12,   // damage to a blocking Defender per swing
+    attackRate: 1000,  // ms between melee swings
     animations: [
       { key: 'idle',    row: 0, frames: 6, frameRate: 8,  repeat: -1 },
       { key: 'walk',    row: 1, frames: 8, frameRate: 10, repeat: -1 },
@@ -29,6 +31,8 @@ export const ENEMY_TYPES = {
     speed: { base: 40, variance: 20 },
     hp: 200,
     goldReward: 20,
+    meleeDamage: 20,
+    attackRate: 1100,
     damageResist: { orb: 0.9 },
     animations: [
       { key: 'idle',    row: 0, frames: 6, frameRate: 8,  repeat: -1 },
@@ -49,6 +53,8 @@ export const ENEMY_TYPES = {
     speed: { base: 30, variance: 10 },
     hp: 400,
     goldReward: 35,
+    meleeDamage: 35,
+    attackRate: 1300,
     animations: [
       { key: 'idle',    row: 0, frames: 6,  frameRate: 8,  repeat: -1 },
       { key: 'walk',    row: 1, frames: 8,  frameRate: 10, repeat: -1 },
@@ -69,6 +75,8 @@ export const ENEMY_TYPES = {
     speed: { base: 90, variance: 30 },
     hp: 60,
     goldReward: 8,
+    meleeDamage: 8,
+    attackRate: 800,
     animations: [
       { key: 'idle',    row: 0, frames: 6,  frameRate: 8,  repeat: -1 },
       { key: 'walk',    row: 1, frames: 6,  frameRate: 10, repeat: -1 },

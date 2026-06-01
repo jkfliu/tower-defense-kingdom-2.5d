@@ -2,12 +2,22 @@ import { CANVAS_W, CANVAS_H, scaleX, scaleY, DEFAULT_LIVES, DEFAULT_WAVES, DEV_M
 import { LEVELS, CAMPAIGN_LEVELS, getUnlocks } from '../data/levels.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
+import { DEFENDER_TYPE } from '../data/defenders.js';
+import {
+  inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
+  closestPointOnPath, pointAlongPath, tickCooldown,
+} from '../logic/combat.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
 import { soundManager } from '../utils/sound.js';
 
 const TOWER_SELL_HIT_R  = 28;
 const WP_HIT_R          = 30;
+
+// First frame of the Defender's walk row — held as a stand-in "idle" pose, since
+// the spritesheet has no idle row. Derived once from the static data.
+const DEFENDER_IDLE_FRAME =
+  DEFENDER_TYPE.animations.find(a => a.key === 'walk').row * DEFENDER_TYPE.sheetCols;
 const PLACEMENT_TILE_W  = 32;
 const PLACEMENT_TILE_H  = 18;
 
@@ -43,6 +53,13 @@ export default class LevelScene extends Phaser.Scene {
         });
       }
     }
+    // Defender unit spritesheet — only when the Barracks tower is available.
+    if (this._unlockedTowers.has('barracks') || nextUnlocks.towers.has('barracks')) {
+      this.load.spritesheet(DEFENDER_TYPE.key, DEFENDER_TYPE.spritesheet, {
+        frameWidth: DEFENDER_TYPE.frameWidth,
+        frameHeight: DEFENDER_TYPE.frameHeight,
+      });
+    }
     this.load.image('arrow', 'assets/towers/Arrow.png');
     this.load.image('orb',   'assets/towers/Ecto_Orb.png');
     this.load.image('bomb',  'assets/towers/Bomb.png');
@@ -71,7 +88,9 @@ export default class LevelScene extends Phaser.Scene {
     this.turrets    = [];
     this.enemies    = [];
     this.bullets    = [];
+    this.defenders  = [];
     this.enemyId    = 0;
+    this.defenderId = 0;
 
     // Economy & game state
     this.gold        = CAMPAIGN_LEVELS[this._initLevelId]?.startGold ?? 100;
@@ -297,7 +316,30 @@ export default class LevelScene extends Phaser.Scene {
     this._hideOverlay();
     this._dismissEnemyPreview();
     this._dismissUnlockPreview();
+    this._resetDefenders();
     this._updateHUD();
+  }
+
+  // At the start of each wave, restore every Barracks to full strength: heal
+  // surviving Defenders and respawn any that died during the previous wave.
+  _resetDefenders() {
+    for (const t of this.turrets) {
+      if (t.bulletType !== 'none') continue;
+      // Heal survivors and send them back to their rally points.
+      for (const def of t.defenders) {
+        if (def.dying) continue;
+        def.hp = DEFENDER_TYPE.hp;
+        this._releaseTarget(def);
+        def.target = null;
+        def.state = 'RETURNING';
+      }
+      // Cancel pending respawn timers and immediately refill empty slots.
+      t.respawnTimers = [];
+      const filledSlots = new Set(t.defenders.filter(d => !d.dying).map(d => d.slot));
+      for (let slot = 0; slot < t.defenderCount; slot++) {
+        if (!filledSlots.has(slot)) this.spawnDefender(t, slot);
+      }
+    }
   }
 
   _applyWaveConfig(waveIdx) {
@@ -675,24 +717,34 @@ export default class LevelScene extends Phaser.Scene {
 
   // ─── Animations ──────────────────────────────────────────────────────────
 
+  // Build row-major spritesheet anims for one unit type (enemy or defender).
+  // Keys are `${unit.key}_${anim.key}`; frame index = row * sheetCols + f.
+  _buildUnitAnims(unit) {
+    for (const def of unit.animations) {
+      const key = `${unit.key}_${def.key}`;
+      if (this.anims.exists(key)) this.anims.remove(key);
+      const frameIndices = [];
+      for (let f = 0; f < def.frames; f++) {
+        frameIndices.push(def.row * unit.sheetCols + f);
+      }
+      this.anims.create({
+        key,
+        frames: this.anims.generateFrameNumbers(unit.key, { frames: frameIndices }),
+        frameRate: def.frameRate,
+        repeat: def.repeat,
+      });
+    }
+  }
+
   _buildAnims() {
     const nextUnlocks = getUnlocks(this._initLevelId + 1);
     for (const enemy of Object.values(ENEMY_TYPES)) {
       if (!this._unlockedEnemies.has(enemy.key) && !nextUnlocks.enemies.has(enemy.key)) continue;
-      for (const def of enemy.animations) {
-        const key = `${enemy.key}_${def.key}`;
-        if (this.anims.exists(key)) this.anims.remove(key);
-        const frameIndices = [];
-        for (let f = 0; f < def.frames; f++) {
-          frameIndices.push(def.row * enemy.sheetCols + f);
-        }
-        this.anims.create({
-          key,
-          frames: this.anims.generateFrameNumbers(enemy.key, { frames: frameIndices }),
-          frameRate: def.frameRate,
-          repeat: def.repeat,
-        });
-      }
+      this._buildUnitAnims(enemy);
+    }
+
+    if (this._unlockedTowers.has('barracks') || nextUnlocks.towers.has('barracks')) {
+      this._buildUnitAnims(DEFENDER_TYPE);
     }
 
     if (!this.anims.exists('bomb_explosion')) {
@@ -1154,7 +1206,8 @@ export default class LevelScene extends Phaser.Scene {
     const sprite = this.add.image(x, y, `turret_${def.key}`, def.frameIndex);
     sprite.setScale(def.displayScale);
     sprite.setDepth(y);
-    this.turrets.push({
+
+    const tower = {
       cx: x, cy: y,
       type: def.key,
       cost: def.cost,
@@ -1171,12 +1224,49 @@ export default class LevelScene extends Phaser.Scene {
       splashRadius: def.splashRadius ?? 0,
       hitRadius:    def.hitRadius    ?? 20,
       aimAngle:     0,
-    });
+    };
+    this.turrets.push(tower);
+
+    if (def.bulletType === 'none') this._initBarracks(tower, def);
+  }
+
+  // Set up a Barracks: compute path-derived rally points and spawn its Defenders.
+  _initBarracks(tower, def) {
+    tower.defenderCount = def.defenderCount;
+    tower.respawnDelay  = def.respawnDelay;
+    tower.defenders     = [];           // live Defender objects owned by this tower
+    tower.respawnTimers = [];           // per-empty-slot countdown (ms)
+
+    // Anchor the rally on the closest point of the path, then stagger the two
+    // Defenders up-/down-path so they form a 2-deep block at the choke.
+    const anchor = closestPointOnPath({ x: tower.cx, y: tower.cy }, this.waypoints);
+    tower.rallyPoints = [];
+    for (let i = 0; i < def.defenderCount; i++) {
+      // i=0 → up-path (toward incoming enemies), i=1 → down-path, etc.
+      const sign = i % 2 === 0 ? -1 : 1;
+      const mag  = def.rallyStagger * (Math.floor(i / 2) + 1);
+      tower.rallyPoints.push(
+        anchor ? pointAlongPath(this.waypoints, anchor.segIdx, anchor.t, sign * mag)
+               : { x: tower.cx, y: tower.cy }
+      );
+      // Initial garrison appears at the rally point (no march-out during build phase).
+      this.spawnDefender(tower, i, false);
+    }
   }
 
   _sellTower(turret) {
     const refund = Math.floor(turret.cost / 2);
     turret.sprite.destroy();
+    // A sold Barracks takes its Defenders with it.
+    if (turret.bulletType === 'none') {
+      for (const def of this.defenders) {
+        if (def.tower !== turret) continue;
+        this._releaseTarget(def);
+        def.dying = true;
+        def.sprite.destroy();
+      }
+      this.defenders = this.defenders.filter(d => d.tower !== turret);
+    }
     this.turrets.splice(this.turrets.indexOf(turret), 1);
     this.gold += refund;
     this._updateHUD();
@@ -1229,6 +1319,19 @@ export default class LevelScene extends Phaser.Scene {
 
   killEnemy(enemy) {
     enemy.dying = true;
+    // Release the Defender that was blocking this enemy so it picks a new target.
+    // The blocker may be SEEKING (reserved, still approaching) or ENGAGED — clear
+    // its target and send it home in either case to avoid a null-target SEEKING step.
+    if (enemy.blocked) {
+      const blocker = enemy.blocker;
+      if (blocker) {
+        blocker.target = null;
+        if (blocker.state === 'SEEKING' || blocker.state === 'ENGAGED') blocker.state = 'RETURNING';
+      }
+      enemy.blocked = false;
+      enemy.blockedBy = null;
+      enemy.blocker = null;
+    }
     // Award gold and score
     this.gold  += ENEMY_TYPES[enemy.type].goldReward;
     this.score += 10;
@@ -1260,6 +1363,190 @@ export default class LevelScene extends Phaser.Scene {
       enemy.sprite.once('animationcomplete', () => {
         if (!enemy.dying) enemy.sprite.play(`${enemy.type}_walk`);
       });
+    }
+  }
+
+  // ─── Defenders (Barracks units) ───────────────────────────────────────────
+
+  // `marchOut` true (default) spawns at the Barracks so the RETURNING state walks
+  // the Defender out to its rally point — used for respawns. Pass false to place it
+  // straight at the rally point (initial garrison during the build phase).
+  spawnDefender(tower, slot, marchOut = true) {
+    const d = DEFENDER_TYPE;
+    const rally = tower.rallyPoints[slot] ?? { x: tower.cx, y: tower.cy };
+    const startX = marchOut ? tower.cx : rally.x;
+    const startY = marchOut ? tower.cy : rally.y;
+    const sprite = this.add.sprite(startX, startY, d.key);
+    sprite.setScale(d.displayScale);
+    sprite.setDepth(startY);
+    sprite.play(`${d.key}_walk`);
+    sprite.setFlipX(false);
+
+    this.defenders.push({
+      id: this.defenderId++,
+      tower,
+      slot,
+      sprite,
+      x: startX, y: startY,
+      hp: d.hp,
+      maxHp: d.hp,
+      state: 'RETURNING',     // RETURNING | IDLE | SEEKING | ENGAGED
+      target: null,
+      attackCooldown: 0,
+      dying: false,
+    });
+    tower.defenders.push(this.defenders[this.defenders.length - 1]);
+  }
+
+  // Claim an enemy for a Defender. `blocker` caches the Defender reference so the
+  // per-frame enemy loop doesn't have to scan this.defenders to find it.
+  _reserveEnemy(enemy, def) {
+    enemy.blocked = true;
+    enemy.blockedBy = def.id;
+    enemy.blocker = def;
+  }
+
+  // Release a Defender's claim on its target (if it still owns it).
+  _releaseTarget(def) {
+    const e = def.target;
+    if (e && e.blockedBy === def.id) {
+      e.blocked = false;
+      e.blockedBy = null;
+      e.blocker = null;
+    }
+  }
+
+  _updateDefenders(dt) {
+    const d = DEFENDER_TYPE;
+    const deltaMs = dt * 1000;
+
+    for (const def of this.defenders) {
+      if (def.dying) continue;
+      const rally = def.tower.rallyPoints[def.slot] ?? { x: def.tower.cx, y: def.tower.cy };
+      def.attackCooldown = tickCooldown(def.attackCooldown, deltaMs);
+
+      // Drop a target that died or wandered out of the perimeter.
+      if (def.target && (def.target.dying ||
+          !inEllipse(def.target.x - def.tower.cx, def.target.y - def.tower.cy, def.tower.range))) {
+        this._releaseTarget(def);
+        def.target = null;
+        if (def.state === 'ENGAGED' || def.state === 'SEEKING') def.state = 'RETURNING';
+      }
+
+      switch (def.state) {
+        case 'IDLE': {
+          const enemy = pickDefenderTarget(def, this.enemies, def.tower.range);
+          if (enemy) {
+            // Reserve the target at selection time so no other Defender picks it
+            // (pickDefenderTarget skips `blocked` enemies). This prevents gang-ups
+            // during the walk-over before melee contact.
+            this._reserveEnemy(enemy, def);
+            def.target = enemy;
+            def.state = 'SEEKING';
+          }
+          break;
+        }
+        case 'RETURNING': {
+          const r = stepToward(def, rally, d.speed, dt);
+          def.x = r.x; def.y = r.y;
+          if (r.dx !== 0) def.sprite.setFlipX(r.dx < 0);
+          this._playDefenderAnim(def, 'walk');
+          if (r.arrived) {
+            def.state = 'IDLE';
+            this._holdDefenderIdle(def);
+          }
+          break;
+        }
+        case 'SEEKING': {
+          if (!def.target) { def.state = 'RETURNING'; break; }
+          const r = stepToward(def, def.target, d.speed, dt);
+          def.x = r.x; def.y = r.y;
+          if (r.dx !== 0) def.sprite.setFlipX(r.dx < 0);
+          this._playDefenderAnim(def, 'walk');
+          const dx = def.target.x - def.x;
+          const dy = def.target.y - def.y;
+          if (Math.sqrt(dx * dx + dy * dy) <= d.meleeRange) {
+            // Already reserved at selection; engaging is what halts the enemy.
+            def.state = 'ENGAGED';
+          }
+          break;
+        }
+        case 'ENGAGED': {
+          def.sprite.setFlipX(def.target.x < def.x);
+          if (def.attackCooldown <= 0) {
+            def.attackCooldown = d.attackRate;
+            def.sprite.play(`${d.key}_attack`, true);
+            this._applyHit(def.target, d.damage);
+          }
+          break;
+        }
+      }
+
+      def.sprite.setPosition(def.x, def.y);
+      def.sprite.setDepth(def.y);
+    }
+  }
+
+  // No idle row in the sheet — hold Walk frame 0 while standing at the rally point.
+  _holdDefenderIdle(def) {
+    def.sprite.anims.stop();
+    def.sprite.setFrame(DEFENDER_IDLE_FRAME);
+  }
+
+  _playDefenderAnim(def, key) {
+    const full = `${DEFENDER_TYPE.key}_${key}`;
+    if (def.sprite.anims.currentAnim?.key !== full) def.sprite.play(full);
+  }
+
+  // Enemy striking back at the Defender blocking it.
+  _applyDefenderHit(def, damage) {
+    if (def.dying) return;
+    def.hp -= damage;
+    if (def.hp <= 0) { this.killDefender(def); return; }
+    // Brief hurt flash, then resume whatever it was doing.
+    const prev = def.sprite.anims.currentAnim?.key;
+    def.sprite.play(`${DEFENDER_TYPE.key}_hurt`, true);
+    def.sprite.once('animationcomplete', () => {
+      if (!def.dying && prev) def.sprite.play(prev, true);
+    });
+  }
+
+  killDefender(def) {
+    def.dying = true;
+    // Release any enemy this Defender was blocking so it resumes walking.
+    this._releaseTarget(def);
+    def.target = null;
+
+    // No death row — flash Hurt as a death animation, then vanish + start respawn.
+    def.sprite.removeAllListeners('animationcomplete');
+    def.sprite.play(`${DEFENDER_TYPE.key}_hurt`, true);
+    def.sprite.once('animationcomplete', () => {
+      def.sprite.destroy();
+      const idx = this.defenders.indexOf(def);
+      if (idx >= 0) this.defenders.splice(idx, 1);
+      const tIdx = def.tower.defenders.indexOf(def);
+      if (tIdx >= 0) def.tower.defenders.splice(tIdx, 1);
+      // Queue a respawn only if the slot is still empty — a new-wave reset may have
+      // already refilled it while this death-flash was playing.
+      const slotFilled = def.tower.defenders.some(d => d.slot === def.slot && !d.dying);
+      const slotQueued = def.tower.respawnTimers.some(rt => rt.slot === def.slot);
+      if (!slotFilled && !slotQueued) {
+        def.tower.respawnTimers.push({ slot: def.slot, remaining: def.tower.respawnDelay });
+      }
+    });
+  }
+
+  _updateDefenderRespawns(delta) {
+    for (const t of this.turrets) {
+      if (t.bulletType !== 'none' || !t.respawnTimers) continue;
+      for (let i = t.respawnTimers.length - 1; i >= 0; i--) {
+        const timer = t.respawnTimers[i];
+        timer.remaining -= delta;
+        if (timer.remaining <= 0) {
+          this.spawnDefender(t, timer.slot);
+          t.respawnTimers.splice(i, 1);
+        }
+      }
     }
   }
 
@@ -1475,6 +1762,8 @@ export default class LevelScene extends Phaser.Scene {
 
     this._updateSpawning(delta);
     this._updateEnemies(dt);
+    this._updateDefenders(dt);
+    this._updateDefenderRespawns(delta);
     this._updateTurrets(delta);
     this._updateBullets(dt);
     this._drawEntities();
@@ -1497,6 +1786,31 @@ export default class LevelScene extends Phaser.Scene {
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (e.dying) continue;
+
+      // Blocked by a Defender: halt on the path and trade blows instead of moving.
+      // Only an ENGAGED blocker stops the enemy — a reserved-but-still-approaching
+      // Defender claims the enemy without freezing it mid-path.
+      if (e.blocked) {
+        const blocker = e.blocker;
+        if (!blocker || blocker.dying) {
+          // Reserving Defender is gone — release the claim and resume walking.
+          e.blocked = false;
+          e.blockedBy = null;
+          e.blocker = null;
+        } else if (blocker.state === 'ENGAGED') {
+          // In melee: halt and trade blows.
+          e.meleeCooldown = tickCooldown(e.meleeCooldown ?? 0, dt * 1000);
+          if (e.meleeCooldown <= 0) {
+            e.meleeCooldown = ENEMY_TYPES[e.type].attackRate ?? 1000;
+            e.sprite.setFlipX(blocker.x < e.x);
+            this._applyDefenderHit(blocker, ENEMY_TYPES[e.type].meleeDamage ?? 10);
+          }
+          e.sprite.setPosition(e.x, e.y);
+          e.sprite.setDepth(e.y);
+          continue;
+        }
+        // else: claimed but the Defender is still approaching — keep walking normally.
+      }
 
       const target = this.waypoints[e.waypointIdx];
       if (!target) { this._enemyEscaped(e, i); continue; }
@@ -1524,17 +1838,11 @@ export default class LevelScene extends Phaser.Scene {
 
   _updateTurrets(delta) {
     for (const t of this.turrets) {
+      if (t.bulletType === 'none') continue;  // Barracks spawns Defenders, never fires
       t.fireCooldown -= delta;
       if (t.fireCooldown > 0) continue;
 
-      let nearest = null, nearestDist = Infinity;
-      for (const e of this.enemies) {
-        if (e.dying) continue;
-        const dx = e.x - t.cx;
-        const dy = e.y - t.cy;
-        const d  = Math.sqrt((dx / t.range) ** 2 + (dy / (t.range * 0.5)) ** 2);
-        if (d <= 1 && d < nearestDist) { nearest = e; nearestDist = d; }
-      }
+      const nearest = nearestEnemyInRange({ x: t.cx, y: t.cy }, this.enemies, t.range);
 
       if (nearest) {
         t.fireCooldown = t.fireRate;
@@ -1575,18 +1883,27 @@ export default class LevelScene extends Phaser.Scene {
 
     for (const e of this.enemies) {
       if (e.dying) continue;
-      const barW = 32, barH = 5;
-      const bx   = e.x - barW / 2;
-      const by   = e.y - 26;
-      const pct  = e.hp / e.maxHp;
-
-      this.entityGraphics.fillStyle(0x220000);
-      this.entityGraphics.fillRect(bx, by, barW, barH);
-      const barColor = pct > 0.5 ? 0x44dd44 : pct > 0.25 ? 0xddaa00 : 0xdd2222;
-      this.entityGraphics.fillStyle(barColor);
-      this.entityGraphics.fillRect(bx, by, barW * pct, barH);
-      this.entityGraphics.lineStyle(1, 0x000000, 0.6);
-      this.entityGraphics.strokeRect(bx, by, barW, barH);
+      this._drawHpBar(e);
     }
+    for (const def of this.defenders) {
+      if (def.dying) continue;
+      this._drawHpBar(def);
+    }
+  }
+
+  // Floating HP bar above an entity (enemy or defender).
+  _drawHpBar(obj) {
+    const barW = 32, barH = 5;
+    const bx   = obj.x - barW / 2;
+    const by   = obj.y - 26;
+    const pct  = Math.max(0, obj.hp / obj.maxHp);
+
+    this.entityGraphics.fillStyle(0x220000);
+    this.entityGraphics.fillRect(bx, by, barW, barH);
+    const barColor = pct > 0.5 ? 0x44dd44 : pct > 0.25 ? 0xddaa00 : 0xdd2222;
+    this.entityGraphics.fillStyle(barColor);
+    this.entityGraphics.fillRect(bx, by, barW * pct, barH);
+    this.entityGraphics.lineStyle(1, 0x000000, 0.6);
+    this.entityGraphics.strokeRect(bx, by, barW, barH);
   }
 }

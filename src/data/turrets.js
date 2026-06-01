@@ -47,4 +47,17 @@ export const TURRET_TYPES = {
     arcDuration: 1.0,
     arcHeight: 80,
   },
+  barracks: {
+    key: 'barracks',
+    label: 'Barracks',
+    image: 'assets/towers/Defender_Barracks_Tower.png',
+    displayScale: 0.7,
+    cost: 80,
+    range: 170,
+    minSpacing: 120,
+    bulletType: 'none',   // spawns Defenders instead of firing projectiles
+    defenderCount: 2,
+    respawnDelay: 5000,   // ms before a dead Defender respawns
+    rallyStagger: 25,     // px each Defender stands up-/down-path from the choke
+  },
 };
