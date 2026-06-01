@@ -325,15 +325,21 @@ export default class LevelScene extends Phaser.Scene {
 
   _triggerVictory() {
     this.phase = 'victory';
-    const nextLevel = this._currentLevel + 1;
-    const curr = getUnlocks(this._currentLevel);
-    const next = getUnlocks(nextLevel);
-    const newTowers  = [...next.towers ].filter(k => !curr.towers.has(k));
-    const newEnemies = [...next.enemies].filter(k => !curr.enemies.has(k));
-    const unlocks = [
-      ...newTowers .map(k => ({ kind: 'tower', key: k })),
-      ...newEnemies.map(k => ({ kind: 'enemy', key: k })),
-    ];
+    // Only surface "newly unlocked" rewards on a first clear of the frontier level.
+    // Replaying an already-cleared level unlocks nothing new.
+    const lastLevel   = CAMPAIGN_LEVELS.length - 1;
+    const wonFrontier = this._initLevelId === this._currentLevel && this._currentLevel < lastLevel;
+    let unlocks = [];
+    if (wonFrontier) {
+      const curr = getUnlocks(this._currentLevel);
+      const next = getUnlocks(this._currentLevel + 1);
+      const newTowers  = [...next.towers ].filter(k => !curr.towers.has(k));
+      const newEnemies = [...next.enemies].filter(k => !curr.enemies.has(k));
+      unlocks = [
+        ...newTowers .map(k => ({ kind: 'tower', key: k })),
+        ...newEnemies.map(k => ({ kind: 'enemy', key: k })),
+      ];
+    }
     this._showOverlay('LEVEL COMPLETE', `Score: ${this.score}`, '#f0c040', true, false, 42, unlocks);
     this.startWaveBtn.setVisible(false);
   }
@@ -352,14 +358,18 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _goToMap() {
-    const nextLevel = this.phase === 'victory'
-      ? Math.min(this._currentLevel + 1, 9)
-      : this._currentLevel;
-    const doReveal = this.phase === 'victory' && this._currentLevel < 9;
+    // Only advance the campaign frontier when the level just completed IS the frontier
+    // (the newest unlocked level). Replaying an already-cleared level must not re-unlock
+    // or re-reveal the next one.
+    const lastLevel = CAMPAIGN_LEVELS.length - 1;
+    const wonFrontier = this.phase === 'victory'
+      && this._initLevelId === this._currentLevel
+      && this._currentLevel < lastLevel;
+    const nextLevel = wonFrontier ? this._currentLevel + 1 : this._currentLevel;
     this.scene.start('CampaignMapScene', {
       currentLevel:       nextLevel,
-      justCompletedLevel: doReveal ? this._currentLevel : -1,
-      reveal:             doReveal,
+      justCompletedLevel: wonFrontier ? this._initLevelId : -1,
+      reveal:             wonFrontier,
       campaignScore:      this.phase === 'gameover' ? 0 : this.score,
     });
   }
