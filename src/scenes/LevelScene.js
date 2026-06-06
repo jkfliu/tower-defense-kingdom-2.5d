@@ -7,6 +7,7 @@ import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
   closestPointOnPath, pointAlongPath, tickCooldown,
 } from '../logic/combat.js';
+import { nextUpgrade, sellRefund } from '../logic/upgrades.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
 import { soundManager } from '../utils/sound.js';
@@ -52,6 +53,10 @@ export default class LevelScene extends Phaser.Scene {
           frameHeight: turret.frameHeight,
         });
       }
+      // Upgrade-level art: turret_<key>_2, _3, … (1-based level; base is the key above).
+      (turret.upgrades ?? []).forEach((up, i) => {
+        if (up.image) this.load.image(`turret_${turret.key}_${i + 2}`, up.image);
+      });
     }
     // Defender unit spritesheet — only when the Barracks tower is available.
     if (this._unlockedTowers.has('barracks') || nextUnlocks.towers.has('barracks')) {
@@ -1145,8 +1150,9 @@ export default class LevelScene extends Phaser.Scene {
 
   _openSellPopup(turret, px, py) {
     const def    = TURRET_TYPES[turret.type];
-    const refund = Math.floor(turret.cost / 2);
-    const cardW  = 150, cardH = 130, pad = 10;
+    const refund = sellRefund(turret.totalSpent);
+    const up     = nextUpgrade(def, turret.level);   // null if maxed / no upgrades
+    const cardW  = 150, cardH = up ? 168 : 130, pad = 10;
 
     const ox = Math.min(Math.max(px - cardW / 2, 4), CANVAS_W - cardW - 4);
     const oy = Math.max(py - cardH - 12, 4);
@@ -1157,32 +1163,47 @@ export default class LevelScene extends Phaser.Scene {
     gfx.lineStyle(1, 0x4a2a0a, 1);
     gfx.strokeRoundedRect(ox, oy, cardW, cardH, 6);
 
-    const title = this.add.text(ox + cardW / 2, oy + pad, def.label ?? def.key, {
+    // Title shows the tower's current level when it can be / has been upgraded.
+    const levelSuffix = (def.upgrades?.length) ? `  Lv ${turret.level}` : '';
+    const title = this.add.text(ox + cardW / 2, oy + pad, (def.label ?? def.key) + levelSuffix, {
       fontSize: '11px', fontFamily: 'Cinzel', color: '#aaaaaa',
     }).setOrigin(0.5, 0).setDepth(1001);
 
-    const icon = this.add.image(ox + cardW / 2, oy + pad + 18 + 16, `turret_${def.key}`, def.frameIndex)
+    // Base level uses turret_<key>; upgraded levels use turret_<key>_<level>.
+    const iconTex = turret.level > 1 ? `turret_${def.key}_${turret.level}` : `turret_${def.key}`;
+    const icon = this.add.image(ox + cardW / 2, oy + pad + 18 + 16, iconTex, def.frameIndex)
       .setScale(def.displayScale * 0.5)
       .setDepth(1002);
 
-    const refundText = this.add.text(ox + cardW / 2, oy + 82, `Sell for ${refund}g`, {
+    const destroyables = [gfx, title, icon];
+    const focusItems   = [];
+
+    // Upgrade button (only when a further level exists).
+    if (up) {
+      const affordable = this.gold >= up.cost;
+      const upgradeBtn = this._makeButton(ox + cardW / 2, oy + 78,
+        `Upgrade ${up.cost}g`, affordable ? 'gold' : 'dark', 1002, () => {
+          if (this._upgradeTower(turret)) this._closeTowerPopup();
+        }, { shadow: false, fontSize: '13px' });
+      destroyables.push(upgradeBtn);
+      focusItems.push({ btn: upgradeBtn, action: () => { if (this._upgradeTower(turret)) this._closeTowerPopup(); } });
+    }
+
+    const refundText = this.add.text(ox + cardW / 2, oy + (up ? 110 : 82), `Sell for ${refund}g`, {
       fontSize: '11px', fontFamily: 'Cinzel', color: '#f0c040',
     }).setOrigin(0.5, 0).setDepth(1002);
+    destroyables.push(refundText);
 
     const sellBtn = this._makeButton(ox + cardW / 2, oy + cardH - 20, 'Sell Tower', 'dark', 1002, () => {
       this._closeTowerPopup();
       this._sellTower(turret);
     }, { shadow: false });
+    destroyables.push(sellBtn);
+    focusItems.push({ btn: sellBtn, action: () => { this._closeTowerPopup(); this._sellTower(turret); } });
 
-    const focusGroup = new FocusGroup(this, [
-      { btn: sellBtn, action: () => { this._closeTowerPopup(); this._sellTower(turret); } },
-    ], { onEscape: () => this._closeTowerPopup() });
+    const focusGroup = new FocusGroup(this, focusItems, { onEscape: () => this._closeTowerPopup() });
 
-    this._towerPopup = {
-      x: px, y: py,
-      destroyables: [gfx, title, icon, refundText, sellBtn],
-      focusGroup,
-    };
+    this._towerPopup = { x: px, y: py, destroyables, focusGroup };
   }
 
   _closeTowerPopup() {
@@ -1211,6 +1232,8 @@ export default class LevelScene extends Phaser.Scene {
       cx: x, cy: y,
       type: def.key,
       cost: def.cost,
+      level:        1,          // 1-based upgrade level
+      totalSpent:   def.cost,   // build + upgrades, drives the sell refund
       sprite,
       range:        def.range,
       fireRate:     def.fireRate,
@@ -1255,7 +1278,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _sellTower(turret) {
-    const refund = Math.floor(turret.cost / 2);
+    const refund = sellRefund(turret.totalSpent);
     turret.sprite.destroy();
     // A sold Barracks takes its Defenders with it.
     if (turret.bulletType === 'none') {
@@ -1272,6 +1295,30 @@ export default class LevelScene extends Phaser.Scene {
     this._updateHUD();
     this.previewGraphics.clear();
     this._setStatusBar(`Sold for ${refund}g`, 'valid');
+  }
+
+  // Upgrade a placed tower to its next level: apply stat overrides, swap the sprite
+  // art, charge the cost, and accumulate totalSpent (for the sell refund).
+  _upgradeTower(turret) {
+    const def = TURRET_TYPES[turret.type];
+    const up  = nextUpgrade(def, turret.level);
+    if (!up || this.gold < up.cost) return false;
+
+    this.gold -= up.cost;
+    turret.level      += 1;
+    turret.totalSpent += up.cost;
+
+    // Apply only the stat fields this upgrade overrides (skip art/cost meta).
+    for (const [k, v] of Object.entries(up)) {
+      if (k === 'image' || k === 'cost') continue;
+      turret[k] = v;
+    }
+    // Swap to this level's art (turret_<type>_<level>); base level keeps turret_<type>.
+    if (up.image) turret.sprite.setTexture(`turret_${turret.type}_${turret.level}`);
+
+    this._updateHUD();
+    this._setStatusBar(`${def.label} upgraded to Lv ${turret.level}`, 'valid');
+    return true;
   }
 
   // ─── Spawning ─────────────────────────────────────────────────────────────

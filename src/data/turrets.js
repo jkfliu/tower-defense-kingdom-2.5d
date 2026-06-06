@@ -30,6 +30,11 @@ export const TURRET_TYPES = {
     bulletColor: 0x9933ff,
     bulletType: 'orb',
     hitRadius: 20,
+    // Upgrade levels (1-based: base is L1). Each entry overrides a subset of stats
+    // and supplies the art for that level. Loaded as turret_mage_2, etc.
+    upgrades: [
+      { image: 'assets/towers/Mystic_Dais_Tower.L2.png', cost: 70, damage: 160, range: 195, fireRate: 1200 },
+    ],
   },
   bomber: {
     key: 'bomber',

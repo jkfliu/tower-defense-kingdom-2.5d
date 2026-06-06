@@ -27,6 +27,7 @@
     .tower-card img { display: block; margin: 0 auto; border-radius: 4px; background: #1a2a1a; }
     .tower-stats { font-size: 11px; color: #666; margin-top: 10px; line-height: 1.8; text-align: left; }
     .tower-stats span { color: #e8d0a0; }
+    .tower-upgrade { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #2a2a4a; }
 
     /* Enemy cards */
     .enemy-card {
@@ -200,6 +201,41 @@ for (const t of TURRET_TYPES) {
     `;
   }
   card.appendChild(stats);
+
+  // Upgrade levels (data-driven): show each upgrade's art + the stats it changes.
+  (t.upgrades ?? []).forEach((up, i) => {
+    const sec = document.createElement('div');
+    sec.className = 'tower-upgrade';
+
+    const label = document.createElement('div');
+    label.className = 'tower-stats';
+    label.innerHTML = `▲ Level ${i + 2} — Upgrade: <span>${up.cost}g</span>`;
+    sec.appendChild(label);
+
+    if (up.image) {
+      const upImg = document.createElement('img');
+      upImg.src = up.image;
+      upImg.width  = CARD_SIZE;
+      upImg.height = CARD_SIZE;
+      upImg.style.objectFit = 'contain';
+      upImg.style.padding = '4px';
+      sec.appendChild(upImg);
+    }
+
+    // List only the stat fields this upgrade overrides (skip art/cost meta).
+    const changed = Object.entries(up)
+      .filter(([k]) => k !== 'image' && k !== 'cost')
+      .map(([k, v]) => `${k}: <span>${v}</span>`)
+      .join('<br>');
+    if (changed) {
+      const diff = document.createElement('div');
+      diff.className = 'tower-stats';
+      diff.innerHTML = changed;
+      sec.appendChild(diff);
+    }
+
+    card.appendChild(sec);
+  });
 
   towersGrid.appendChild(card);
 }
