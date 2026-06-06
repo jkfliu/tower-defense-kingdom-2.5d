@@ -96,7 +96,7 @@
 import { CAMPAIGN_LEVELS, LEVELS as GAME_LEVELS } from './src/data/levels.js';
 import { TURRET_TYPES as GAME_TURRETS } from './src/data/turrets.js';
 import { ENEMY_TYPES as GAME_ENEMIES } from './src/data/enemies.js';
-import { DEFENDER_TYPE } from './src/data/defenders.js';
+import { DEFENDER_TYPE, defenderForLevel } from './src/data/defenders.js';
 
 const CANVAS_W = 900, CANVAS_H = 560;
 
@@ -252,6 +252,15 @@ for (const t of TURRET_TYPES) {
       diff.className = 'tower-stats';
       diff.innerHTML = changed;
       sec.appendChild(diff);
+    }
+
+    // For a Barracks, also show the upgraded unit it now fields (e.g. Warden).
+    if (t.bulletType === 'none') {
+      const unit = defenderForLevel(i + 2);   // upgrade i → tower level i+2
+      const u = document.createElement('div');
+      u.className = 'tower-stats';
+      u.innerHTML = `Unit: <span>${unit.key}</span><br>Unit HP: <span>${unit.hp}</span><br>Unit dmg: <span>${unit.damage}</span>`;
+      sec.appendChild(u);
     }
 
     card.appendChild(sec);

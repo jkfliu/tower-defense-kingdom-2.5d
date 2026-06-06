@@ -2,7 +2,7 @@ import { CANVAS_W, CANVAS_H, scaleX, scaleY, DEFAULT_LIVES, DEFAULT_WAVES, DEV_M
 import { LEVELS, CAMPAIGN_LEVELS, getUnlocks } from '../data/levels.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
-import { DEFENDER_TYPE } from '../data/defenders.js';
+import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defenders.js';
 import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
   closestPointOnPath, pointAlongPath, tickCooldown,
@@ -58,17 +58,19 @@ export default class LevelScene extends Phaser.Scene {
         if (up.image) this.load.image(`turret_${turret.key}_${i + 2}`, up.image);
       });
     }
-    // Defender unit spritesheet — only when the Barracks tower is available.
+    // Defender unit spritesheets (footman + warden) — only when Barracks is available.
     if (this._unlockedTowers.has('barracks') || nextUnlocks.towers.has('barracks')) {
-      this.load.spritesheet(DEFENDER_TYPE.key, DEFENDER_TYPE.spritesheet, {
-        frameWidth: DEFENDER_TYPE.frameWidth,
-        frameHeight: DEFENDER_TYPE.frameHeight,
-      });
+      for (const unit of DEFENDER_TYPES) {
+        this.load.spritesheet(unit.key, unit.spritesheet, {
+          frameWidth: unit.frameWidth,
+          frameHeight: unit.frameHeight,
+        });
+      }
     }
-    this.load.image('arrow', 'assets/towers/Arrow.png');
-    this.load.image('orb',   'assets/towers/Ecto_Orb.png');
-    this.load.image('bomb',  'assets/towers/Bomb.png');
-    this.load.spritesheet('bomb_explosion', 'assets/towers/Bomb_Explosion.png', {
+    this.load.image('arrow', 'assets/towers/Ammo_Arrow.png');
+    this.load.image('orb',   'assets/towers/Ammo_Ecto_Orb.png');
+    this.load.image('bomb',  'assets/towers/Ammo_Bomb.png');
+    this.load.spritesheet('bomb_explosion', 'assets/towers/Ammo_Bomb_Explosion.png', {
       frameWidth: 64, frameHeight: 64,
     });
   }
@@ -333,7 +335,7 @@ export default class LevelScene extends Phaser.Scene {
       // Heal survivors and send them back to their rally points.
       for (const def of t.defenders) {
         if (def.dying) continue;
-        def.hp = DEFENDER_TYPE.hp;
+        def.hp = def.maxHp;   // unit's own full HP (footman or warden)
         this._releaseTarget(def);
         def.target = null;
         def.state = 'RETURNING';
@@ -749,7 +751,7 @@ export default class LevelScene extends Phaser.Scene {
     }
 
     if (this._unlockedTowers.has('barracks') || nextUnlocks.towers.has('barracks')) {
-      this._buildUnitAnims(DEFENDER_TYPE);
+      for (const unit of DEFENDER_TYPES) this._buildUnitAnims(unit);
     }
 
     if (!this.anims.exists('bomb_explosion')) {
@@ -1316,9 +1318,31 @@ export default class LevelScene extends Phaser.Scene {
     // Swap to this level's art (turret_<type>_<level>); base level keeps turret_<type>.
     if (up.image) turret.sprite.setTexture(`turret_${turret.type}_${turret.level}`);
 
+    // A Barracks fields a stronger unit at higher levels — upgrade its live garrison.
+    if (turret.bulletType === 'none') this._upgradeBarracksDefenders(turret);
+
     this._updateHUD();
     this._setStatusBar(`${def.label} upgraded to Lv ${turret.level}`, 'valid');
     return true;
+  }
+
+  // Replace a Barracks' live Defenders in place with its current-level unit (e.g.
+  // footmen → wardens on L2), preserving each one's slot and position.
+  _upgradeBarracksDefenders(turret) {
+    const live = turret.defenders.filter(d => !d.dying);
+    for (const old of live) {
+      this._releaseTarget(old);
+      const { x, y, slot } = old;
+      old.sprite.destroy();
+      this.defenders.splice(this.defenders.indexOf(old), 1);
+      turret.defenders.splice(turret.defenders.indexOf(old), 1);
+
+      this.spawnDefender(turret, slot, false);     // new unit, full HP
+      const fresh = turret.defenders[turret.defenders.length - 1];
+      fresh.x = x; fresh.y = y;                     // keep it where the old one stood
+      fresh.sprite.setPosition(x, y);
+      fresh.sprite.setDepth(y);
+    }
   }
 
   // ─── Spawning ─────────────────────────────────────────────────────────────
@@ -1419,7 +1443,7 @@ export default class LevelScene extends Phaser.Scene {
   // the Defender out to its rally point — used for respawns. Pass false to place it
   // straight at the rally point (initial garrison during the build phase).
   spawnDefender(tower, slot, marchOut = true) {
-    const d = DEFENDER_TYPE;
+    const d = defenderForLevel(tower.level);   // footman (L1) or warden (L2)
     const rally = tower.rallyPoints[slot] ?? { x: tower.cx, y: tower.cy };
     const startX = marchOut ? tower.cx : rally.x;
     const startY = marchOut ? tower.cy : rally.y;
@@ -1433,6 +1457,7 @@ export default class LevelScene extends Phaser.Scene {
       id: this.defenderId++,
       tower,
       slot,
+      unit: d,                // which DEFENDER_TYPES entry this instance is
       sprite,
       x: startX, y: startY,
       hp: d.hp,
@@ -1464,11 +1489,11 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _updateDefenders(dt) {
-    const d = DEFENDER_TYPE;
     const deltaMs = dt * 1000;
 
     for (const def of this.defenders) {
       if (def.dying) continue;
+      const d = def.unit;   // this instance's unit type (footman or warden)
       const rally = def.tower.rallyPoints[def.slot] ?? { x: def.tower.cx, y: def.tower.cy };
       def.attackCooldown = tickCooldown(def.attackCooldown, deltaMs);
 
@@ -1541,7 +1566,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _playDefenderAnim(def, key) {
-    const full = `${DEFENDER_TYPE.key}_${key}`;
+    const full = `${def.unit.key}_${key}`;
     if (def.sprite.anims.currentAnim?.key !== full) def.sprite.play(full);
   }
 
@@ -1552,7 +1577,7 @@ export default class LevelScene extends Phaser.Scene {
     if (def.hp <= 0) { this.killDefender(def); return; }
     // Brief hurt flash, then resume whatever it was doing.
     const prev = def.sprite.anims.currentAnim?.key;
-    def.sprite.play(`${DEFENDER_TYPE.key}_hurt`, true);
+    def.sprite.play(`${def.unit.key}_hurt`, true);
     def.sprite.once('animationcomplete', () => {
       if (!def.dying && prev) def.sprite.play(prev, true);
     });
@@ -1566,7 +1591,7 @@ export default class LevelScene extends Phaser.Scene {
 
     // No death row — flash Hurt as a death animation, then vanish + start respawn.
     def.sprite.removeAllListeners('animationcomplete');
-    def.sprite.play(`${DEFENDER_TYPE.key}_hurt`, true);
+    def.sprite.play(`${def.unit.key}_hurt`, true);
     def.sprite.once('animationcomplete', () => {
       def.sprite.destroy();
       const idx = this.defenders.indexOf(def);
