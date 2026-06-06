@@ -19,8 +19,8 @@ export const TURRET_TYPES = {
   mage: {
     key: 'mage',
     label: 'Mage Tower',
-    image: 'assets/towers/Firefly_Gemini_mage_tower.128x128.png',
-    displayScale: 0.7,
+    image: 'assets/towers/Mystic_Dais_Tower.L1.png',
+    displayScale: 0.75,
     cost: 70,
     range: 170,
     minSpacing: 120,
