@@ -1598,6 +1598,13 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _predictPath(enemy, seconds) {
+    // An enemy locked in melee by a Defender is stationary — don't lead the shot
+    // ahead of it, or projectiles will overshoot a target that isn't moving.
+    // (A merely-reserved enemy is still walking, so only halt prediction when its
+    // blocker is actually ENGAGED — matching when _updateEnemies stops it.)
+    if (enemy.blocked && enemy.blocker?.state === 'ENGAGED') {
+      return { x: enemy.x, y: enemy.y };
+    }
     let remaining = enemy.speed * seconds;
     let px = enemy.x, py = enemy.y;
     for (let wi = enemy.waypointIdx; wi < this.waypoints.length && remaining > 0; wi++) {
