@@ -1,10 +1,11 @@
 // Defender footman — the melee unit spawned and owned by the Barracks tower.
 // Kept separate from ENEMY_TYPES so it is never treated as a spawnable enemy.
-// Spritesheet: assets/towers/Defender.png — 800x300 → 8 cols x 3 rows of 100x100.
+// Spritesheet: assets/towers/Defender.L1.png — 800x300 → 8 cols x 3 rows of 100x100.
 // Rows: 0 = Hurt (8 frames), 1 = Walk (8), 2 = Attack (6). No idle/death rows.
+// (L2 Warden sprite/stats to follow once its art is ready.)
 export const DEFENDER_TYPE = {
   key: 'defender',
-  spritesheet: 'assets/towers/Defender.png',
+  spritesheet: 'assets/towers/Defender.L1.png',
   frameWidth: 100,
   frameHeight: 100,
   sheetCols: 8,

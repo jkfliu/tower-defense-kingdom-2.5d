@@ -55,7 +55,7 @@ export const TURRET_TYPES = {
   barracks: {
     key: 'barracks',
     label: 'Barracks',
-    image: 'assets/towers/Defender_Barracks_Tower.png',
+    image: 'assets/towers/Defender_Barracks_Tower.L1.png',
     displayScale: 0.7,
     cost: 80,
     range: 170,
@@ -64,5 +64,10 @@ export const TURRET_TYPES = {
     defenderCount: 2,
     respawnDelay: 5000,   // ms before a dead Defender respawns
     rallyStagger: 25,     // px each Defender stands up-/down-path from the choke
+    // L2: wider patrol + faster reinforcements. (Warden unit swap to follow once
+    // its sprite is ready; for now the L2 Barracks still fields the base Defender.)
+    upgrades: [
+      { image: 'assets/towers/Defender_Barracks_Tower.L2.png', cost: 80, range: 200, respawnDelay: 4000 },
+    ],
   },
 };

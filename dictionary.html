@@ -27,6 +27,9 @@
     .tower-card img { display: block; margin: 0 auto; border-radius: 4px; background: #1a2a1a; }
     .tower-stats { font-size: 11px; color: #666; margin-top: 10px; line-height: 1.8; text-align: left; }
     .tower-stats span { color: #e8d0a0; }
+    /* Fixed-height base block so every card's upgrade section starts at the same Y,
+       aligning the Level 2 rows horizontally regardless of base stat-line count. */
+    .tower-base { min-height: 280px; }
     .tower-upgrade { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #2a2a4a; }
 
     /* Enemy cards */
@@ -166,9 +169,15 @@ for (const t of TURRET_TYPES) {
   const card = document.createElement('div');
   card.className = 'tower-card';
 
+  // Base (Level 1) content lives in a fixed-height block so the upgrade section
+  // starts at the same Y on every card → Level 2 rows align horizontally.
+  const base = document.createElement('div');
+  base.className = 'tower-base';
+  card.appendChild(base);
+
   const h3 = document.createElement('h3');
   h3.textContent = t.label;
-  card.appendChild(h3);
+  base.appendChild(h3);
 
   const img = document.createElement('img');
   img.src = t.image;
@@ -176,7 +185,7 @@ for (const t of TURRET_TYPES) {
   img.height = CARD_SIZE;
   img.style.objectFit = 'contain';
   img.style.padding = '4px';
-  card.appendChild(img);
+  base.appendChild(img);
 
   const stats = document.createElement('div');
   stats.className = 'tower-stats';
@@ -200,7 +209,7 @@ for (const t of TURRET_TYPES) {
       Bullet: <span>${t.bulletType}</span>${t.splashRadius ? `<br>Splash: <span>${t.splashRadius}px</span>` : ''}
     `;
   }
-  card.appendChild(stats);
+  base.appendChild(stats);
 
   // Upgrade levels (data-driven): show each upgrade's art + the stats it changes.
   (t.upgrades ?? []).forEach((up, i) => {
@@ -222,10 +231,21 @@ for (const t of TURRET_TYPES) {
       sec.appendChild(upImg);
     }
 
-    // List only the stat fields this upgrade overrides (skip art/cost meta).
+    // List only the stat fields this upgrade overrides (skip art/cost meta),
+    // formatting known fields for readability.
+    const fmt = (k, v) => {
+      switch (k) {
+        case 'damage':       return `Damage: <span>${v}</span>`;
+        case 'range':        return `Range: <span>${v}px</span>`;
+        case 'fireRate':     return `Fire rate: <span>${(1000 / v).toFixed(1)}/s</span>`;
+        case 'respawnDelay': return `Respawn: <span>${(v / 1000).toFixed(0)}s</span>`;
+        case 'defenderCount':return `Defenders: <span>${v}</span>`;
+        default:             return `${k}: <span>${v}</span>`;
+      }
+    };
     const changed = Object.entries(up)
       .filter(([k]) => k !== 'image' && k !== 'cost')
-      .map(([k, v]) => `${k}: <span>${v}</span>`)
+      .map(([k, v]) => fmt(k, v))
       .join('<br>');
     if (changed) {
       const diff = document.createElement('div');
