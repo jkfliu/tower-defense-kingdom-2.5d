@@ -6,6 +6,7 @@ import {
   stepToward,
   closestPointOnPath,
   pointAlongPath,
+  pathProgress,
   tickCooldown,
   resolveMelee,
 } from '../src/logic/combat.js';
@@ -195,6 +196,29 @@ describe('pointAlongPath', () => {
     const r = pointAlongPath(path, 0, 0.5, -9999);
     expect(r.x).toBeCloseTo(0);
     expect(r.y).toBeCloseTo(0);
+  });
+});
+
+describe('pathProgress', () => {
+  // An L-shaped path: right along x, then down along y.
+  const path = [
+    { x: 0,   y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+  ];
+
+  it('increases monotonically in the enemy travel direction (wp0 → end)', () => {
+    const near  = pathProgress(path, { x: 20, y: 0 });   // early on segment 0
+    const mid   = pathProgress(path, { x: 90, y: 0 });   // late on segment 0
+    const later = pathProgress(path, { x: 100, y: 60 });  // into segment 1
+    expect(near).toBeLessThan(mid);
+    expect(mid).toBeLessThan(later);
+  });
+
+  it('returns segIdx + t (0 at start, segCount at end)', () => {
+    expect(pathProgress(path, { x: 0, y: 0 })).toBeCloseTo(0);
+    expect(pathProgress(path, { x: 50, y: 0 })).toBeCloseTo(0.5);
+    expect(pathProgress(path, { x: 100, y: 100 })).toBeCloseTo(2);
   });
 });
 

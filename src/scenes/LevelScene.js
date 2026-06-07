@@ -5,7 +5,7 @@ import { TURRET_TYPES } from '../data/turrets.js';
 import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defenders.js';
 import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
-  closestPointOnPath, pointAlongPath, tickCooldown,
+  closestPointOnPath, pointAlongPath, pathProgress, tickCooldown,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { makeButton } from '../utils/button.js';
@@ -1291,18 +1291,24 @@ export default class LevelScene extends Phaser.Scene {
     tower.defenders     = [];           // live Defender objects owned by this tower
     tower.respawnTimers = [];           // per-empty-slot countdown (ms)
 
-    // Anchor the rally on the closest point of the path, then stagger the two
-    // Defenders up-/down-path so they form a 2-deep block at the choke.
+    // Anchor the rally on the closest point of the path, then stagger the Defenders
+    // up-/down-path so they form a multi-deep block at the choke.
     const anchor = closestPointOnPath({ x: tower.cx, y: tower.cy }, this.waypoints);
-    tower.rallyPoints = [];
+    const points = [];
     for (let i = 0; i < def.defenderCount; i++) {
-      // i=0 → up-path (toward incoming enemies), i=1 → down-path, etc.
       const sign = i % 2 === 0 ? -1 : 1;
       const mag  = def.rallyStagger * (Math.floor(i / 2) + 1);
-      tower.rallyPoints.push(
+      points.push(
         anchor ? pointAlongPath(this.waypoints, anchor.segIdx, anchor.t, sign * mag)
                : { x: tower.cx, y: tower.cy }
       );
+    }
+    // Order slots front-to-back along the enemy travel direction (smallest path
+    // progress first), so slot 0 is the front defender that meets enemies first.
+    points.sort((a, b) => pathProgress(this.waypoints, a) - pathProgress(this.waypoints, b));
+    tower.rallyPoints = points;
+
+    for (let i = 0; i < def.defenderCount; i++) {
       // Initial garrison appears at the rally point (no march-out during build phase).
       this.spawnDefender(tower, i, false);
     }
@@ -1528,7 +1534,11 @@ export default class LevelScene extends Phaser.Scene {
   _updateDefenders(dt) {
     const deltaMs = dt * 1000;
 
-    for (const def of this.defenders) {
+    // Evaluate front defenders (lower slot) first so they claim an incoming enemy
+    // before the rear ones scan — slot order is front-to-back per _initBarracks.
+    // (Respawns append to this.defenders, so don't rely on raw array order.)
+    const ordered = [...this.defenders].sort((a, b) => a.slot - b.slot);
+    for (const def of ordered) {
       if (def.dying) continue;
       const d = def.unit;   // this instance's unit type (footman or warden)
       const rally = def.tower.rallyPoints[def.slot] ?? { x: def.tower.cx, y: def.tower.cy };

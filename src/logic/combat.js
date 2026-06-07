@@ -68,6 +68,15 @@ export function closestPointOnPath(pos, waypoints) {
   return best;
 }
 
+// Scalar "progress" of a point along the path: segIdx + t (where t is the clamped
+// position within that segment). Monotonically increases in the enemy travel
+// direction (waypoint 0 → end), so a smaller value means "reached first / further
+// front" relative to incoming enemies.
+export function pathProgress(waypoints, pos) {
+  const c = closestPointOnPath(pos, waypoints);
+  return c ? c.segIdx + c.t : 0;
+}
+
 // Walk a signed arc-length along the polyline from a (segIdx, t) anchor. Positive
 // distance heads toward later waypoints, negative toward earlier ones; clamps at the
 // path ends.
