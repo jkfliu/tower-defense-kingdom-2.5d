@@ -1365,8 +1365,7 @@ export default class LevelScene extends Phaser.Scene {
       this._releaseTarget(old);
       const { x, y, slot } = old;
       old.sprite.destroy();
-      this.defenders.splice(this.defenders.indexOf(old), 1);
-      turret.defenders.splice(turret.defenders.indexOf(old), 1);
+      this._removeDefender(old);
 
       this.spawnDefender(turret, slot, false);     // new unit, full HP
       const fresh = turret.defenders[turret.defenders.length - 1];
@@ -1430,9 +1429,7 @@ export default class LevelScene extends Phaser.Scene {
         blocker.target = null;
         if (blocker.state === 'SEEKING' || blocker.state === 'ENGAGED') blocker.state = 'RETURNING';
       }
-      enemy.blocked = false;
-      enemy.blockedBy = null;
-      enemy.blocker = null;
+      this._releaseEnemyClaim(enemy);
     }
     // Award gold and score
     this.gold  += ENEMY_TYPES[enemy.type].goldReward;
@@ -1501,22 +1498,31 @@ export default class LevelScene extends Phaser.Scene {
     tower.defenders.push(this.defenders[this.defenders.length - 1]);
   }
 
+  // Remove a Defender from both the scene-wide list and its tower's garrison.
+  _removeDefender(def) {
+    const idx = this.defenders.indexOf(def);
+    if (idx >= 0) this.defenders.splice(idx, 1);
+    const tIdx = def.tower.defenders.indexOf(def);
+    if (tIdx >= 0) def.tower.defenders.splice(tIdx, 1);
+  }
+
   // Claim an enemy for a Defender. `blocker` caches the Defender reference so the
   // per-frame enemy loop doesn't have to scan this.defenders to find it.
   _reserveEnemy(enemy, def) {
     enemy.blocked = true;
-    enemy.blockedBy = def.id;
     enemy.blocker = def;
+  }
+
+  // Clear an enemy's blocked claim.
+  _releaseEnemyClaim(enemy) {
+    enemy.blocked = false;
+    enemy.blocker = null;
   }
 
   // Release a Defender's claim on its target (if it still owns it).
   _releaseTarget(def) {
     const e = def.target;
-    if (e && e.blockedBy === def.id) {
-      e.blocked = false;
-      e.blockedBy = null;
-      e.blocker = null;
-    }
+    if (e && e.blocker === def) this._releaseEnemyClaim(e);
   }
 
   _updateDefenders(dt) {
@@ -1625,10 +1631,7 @@ export default class LevelScene extends Phaser.Scene {
     def.sprite.play(`${def.unit.key}_hurt`, true);
     def.sprite.once('animationcomplete', () => {
       def.sprite.destroy();
-      const idx = this.defenders.indexOf(def);
-      if (idx >= 0) this.defenders.splice(idx, 1);
-      const tIdx = def.tower.defenders.indexOf(def);
-      if (tIdx >= 0) def.tower.defenders.splice(tIdx, 1);
+      this._removeDefender(def);
       // Queue a respawn only if the slot is still empty — a new-wave reset may have
       // already refilled it while this death-flash was playing.
       const slotFilled = def.tower.defenders.some(d => d.slot === def.slot && !d.dying);
@@ -1904,9 +1907,7 @@ export default class LevelScene extends Phaser.Scene {
         const blocker = e.blocker;
         if (!blocker || blocker.dying) {
           // Reserving Defender is gone — release the claim and resume walking.
-          e.blocked = false;
-          e.blockedBy = null;
-          e.blocker = null;
+          this._releaseEnemyClaim(e);
         } else if (blocker.state === 'ENGAGED') {
           // In melee: halt and trade blows.
           e.meleeCooldown = tickCooldown(e.meleeCooldown ?? 0, dt * 1000);
