@@ -17,6 +17,8 @@
   #sound-toggle:hover { opacity: 1; }
   #game-container canvas { display: block; }
   #info { margin-top: 8px; margin-bottom: 6px; font-size: 14px; opacity: 0.7; }
+  .info-action { cursor: pointer; transition: color 0.15s; }
+  .info-action:hover { color: #f0c040; }
   #statusbar { margin-top: 6px; font-size: 12px; letter-spacing: 0.05em; min-height: 18px; }
   #statusbar.valid   { color: #f0c040; opacity: 1; }
   #statusbar.invalid { color: #ff6666; opacity: 1; }
@@ -35,7 +37,7 @@
   <span id="sound-toggle" title="Toggle sound">🔊</span>
 </div>
 <div id="game-container"></div>
-<div id="info">S Start Wave · P Pause · R Restart level · <span id="info-dev" style="display:none"> F Fast Forward · <span id="info-debug">D Debug</span> · <span id="info-editor">E Editor</span></span></div>
+<div id="info"><span id="info-start" class="info-action">S Start Wave</span> · <span id="info-pause" class="info-action">P Pause</span> · <span id="info-restart" class="info-action">R Restart level</span> · <span id="info-dev" style="display:none"> <span id="info-ff" class="info-action">F Fast Forward</span> · <span id="info-debug">D Debug</span> · <span id="info-editor">E Editor</span></span></div>
 <div id="statusbar" class="neutral"></div>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 <script type="module" src="src/main.js"></script>

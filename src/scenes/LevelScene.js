@@ -7,7 +7,7 @@ import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
   closestPointOnPath, pointAlongPath, tickCooldown,
 } from '../logic/combat.js';
-import { nextUpgrade, sellRefund } from '../logic/upgrades.js';
+import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
 import { soundManager } from '../utils/sound.js';
@@ -139,7 +139,7 @@ export default class LevelScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(1300).setVisible(false);
 
     // --- Buttons ---
-    this.startWaveBtn = this._makeButton(CANVAS_W / 2, CANVAS_H - 36, '▶  Start Wave 1', 'gold', 900, () => this._startWave());
+    this.startWaveBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2, '▶  Start Wave 1', 'gold', 900, () => this._startWave());
 
     this.retryLevelBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 96, '↺  Retry Level', 'gold', 1300, () => {
       const levelId = LEVELS.indexOf(this.levelConfig);
@@ -237,31 +237,59 @@ export default class LevelScene extends Phaser.Scene {
   // ─── Keyboard input ───────────────────────────────────────────────────────
 
   _registerKeyboard() {
-    this.input.keyboard.on('keydown-S', () => { this._startWave(); });
-    this.input.keyboard.on('keydown-R', () => {
-      if (this.phase === 'victory' || this.phase === 'gameover') {
-        this._goToMap();
-      } else {
-        this._showRestartConfirm();
-      }
-    });
-    this.input.keyboard.on('keydown-P', () => {
-      if (this.phase === 'gameover' || this.phase === 'victory') return;
-      this.paused = !this.paused;
-      this.pauseText.setVisible(this.paused);
-      this._setStatusBar(this.paused ? 'Game Paused' : 'Game Resumed', 'valid');
-    });
+    this.input.keyboard.on('keydown-S', () => this._startWave());
+    this.input.keyboard.on('keydown-R', () => this._restartOrExit());
+    this.input.keyboard.on('keydown-P', () => this._togglePause());
     if (DEV_MODE) {
       this._registerDevKeys();
       this._registerEditorKeys();
     }
+    this._registerInfoClicks();
+  }
+
+  // Bottom-bar hints double as clickable buttons for players without a keyboard.
+  // Each fires the same action as its shortcut key.
+  _registerInfoClicks() {
+    const bind = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+    this._infoHandlers = [
+      ['info-start',   () => this._startWave()],
+      ['info-pause',   () => this._togglePause()],
+      ['info-restart', () => this._restartOrExit()],
+    ];
+    // Fast Forward only exists in dev mode (the F key + #info-dev hint).
+    if (DEV_MODE) this._infoHandlers.push(['info-ff', () => this._fastForward()]);
+    for (const [id, fn] of this._infoHandlers) bind(id, fn);
+    // Detach on scene shutdown so listeners don't stack across level restarts.
+    this.events.once('shutdown', () => {
+      for (const [id, fn] of this._infoHandlers) {
+        document.getElementById(id)?.removeEventListener('click', fn);
+      }
+    });
+  }
+
+  _togglePause() {
+    if (this.phase === 'gameover' || this.phase === 'victory') return;
+    this.paused = !this.paused;
+    this.pauseText.setVisible(this.paused);
+    this._setStatusBar(this.paused ? 'Game Paused' : 'Game Resumed', 'valid');
+  }
+
+  _restartOrExit() {
+    if (this.phase === 'victory' || this.phase === 'gameover') {
+      this._goToMap();
+    } else {
+      this._showRestartConfirm();
+    }
+  }
+
+  // Dev-only: instantly win the level (skip to victory).
+  _fastForward() {
+    if (this.phase === 'gameover' || this.phase === 'victory') return;
+    this._triggerVictory();
   }
 
   _registerDevKeys() {
-    this.input.keyboard.on('keydown-F', () => {
-      if (this.phase === 'gameover' || this.phase === 'victory') return;
-      this._triggerVictory();
-    });
+    this.input.keyboard.on('keydown-F', () => this._fastForward());
     this.input.keyboard.on('keydown-D', () => {
       this.debug = !this.debug;
       this.debugGraphics.setVisible(this.debug || this.editorMode);
@@ -1182,9 +1210,10 @@ export default class LevelScene extends Phaser.Scene {
 
     // Upgrade button (only when a further level exists).
     if (up) {
-      const affordable = this.gold >= up.cost;
+      const upCost = upgradeCost(def);
+      const affordable = this.gold >= upCost;
       const upgradeBtn = this._makeButton(ox + cardW / 2, oy + 78,
-        `Upgrade ${up.cost}g`, affordable ? 'gold' : 'dark', 1002, () => {
+        `Upgrade ${upCost}g`, affordable ? 'gold' : 'dark', 1002, () => {
           if (this._upgradeTower(turret)) this._closeTowerPopup();
         }, { shadow: false, fontSize: '13px' });
       destroyables.push(upgradeBtn);
@@ -1304,15 +1333,17 @@ export default class LevelScene extends Phaser.Scene {
   _upgradeTower(turret) {
     const def = TURRET_TYPES[turret.type];
     const up  = nextUpgrade(def, turret.level);
-    if (!up || this.gold < up.cost) return false;
+    if (!up) return false;
+    const cost = upgradeCost(def);           // derived: 0.7 × base cost
+    if (this.gold < cost) return false;
 
-    this.gold -= up.cost;
+    this.gold -= cost;
     turret.level      += 1;
-    turret.totalSpent += up.cost;
+    turret.totalSpent += cost;
 
-    // Apply only the stat fields this upgrade overrides (skip art/cost meta).
+    // Apply only the stat fields this upgrade overrides (skip art meta).
     for (const [k, v] of Object.entries(up)) {
-      if (k === 'image' || k === 'cost') continue;
+      if (k === 'image') continue;
       turret[k] = v;
     }
     // Swap to this level's art (turret_<type>_<level>); base level keeps turret_<type>.

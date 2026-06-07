@@ -96,7 +96,9 @@ export default class CampaignMapScene extends Phaser.Scene {
     }).setOrigin(1, 0).setDepth(15).setInteractive({ useHandCursor: true });
     dictBtn.on('pointerover', () => dictBtn.setStyle({ color: '#f0c040' }));
     dictBtn.on('pointerout',  () => dictBtn.setStyle({ color: '#888888' }));
-    dictBtn.on('pointerdown', () => { window.open('dictionary.html', '_blank'); });
+    // Open on pointerup (the completed tap/click) — mobile browsers only treat that
+    // as a trusted gesture for window.open; pointerdown gets popup-blocked on touch.
+    dictBtn.on('pointerup', () => { window.open('dictionary.html', '_blank'); });
 
     // Input
     this.input.on('pointerdown', (p) => this._onPointerDown(p));

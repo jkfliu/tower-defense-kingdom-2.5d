@@ -21,7 +21,7 @@
       border: 1px solid #2a2a4a;
       border-radius: 8px;
       padding: 14px;
-      width: 160px;
+      width: 180px;
       text-align: center;
     }
     .tower-card img { display: block; margin: 0 auto; border-radius: 4px; background: #1a2a1a; }
@@ -96,7 +96,8 @@
 import { CAMPAIGN_LEVELS, LEVELS as GAME_LEVELS } from './src/data/levels.js';
 import { TURRET_TYPES as GAME_TURRETS } from './src/data/turrets.js';
 import { ENEMY_TYPES as GAME_ENEMIES } from './src/data/enemies.js';
-import { DEFENDER_TYPE, defenderForLevel } from './src/data/defenders.js';
+import { defenderForLevel } from './src/data/defenders.js';
+import { mergedStats, upgradeCost } from './src/logic/upgrades.js';
 
 const CANVAS_W = 900, CANVAS_H = 560;
 
@@ -165,6 +166,30 @@ CAMPAIGN_LEVELS.forEach(cl => {
 const towersGrid = document.getElementById('towers-grid');
 const CARD_SIZE = 120;
 
+// Shared stat renderers so base cards and upgrade sections read identically.
+// `costLabel` is "Cost" for the base level, "Upgrade Cost" for an upgrade.
+function projectileStatsHtml(s, costLabel) {
+  return `
+    ${costLabel}: <span>${s.cost}g</span><br>
+    Damage: <span>${s.damage}</span><br>
+    Fire Rate: <span>${(1000 / s.fireRate).toFixed(1)}/s</span><br>
+    Range: <span>${s.range}px</span><br>
+    Ammo: <span>${s.bulletType}</span>${s.splashRadius ? `<br>Splash: <span>${s.splashRadius}px</span>` : ''}
+  `;
+}
+
+const UNIT_NAMES = { defender: 'Defenders', warden: 'Warden' };
+function barracksStatsHtml(s, unit, costLabel) {
+  return `
+    ${costLabel}: <span>${s.cost}g</span><br>
+    Units: <span>${UNIT_NAMES[unit.key] ?? unit.key}</span><br>
+    Unit HP: <span>${unit.hp}</span><br>
+    Unit Dmg: <span>${unit.damage}</span><br>
+    Perimeter: <span>${s.range}px</span><br>
+    Respawn: <span>${(s.respawnDelay / 1000).toFixed(0)}s</span>
+  `;
+}
+
 for (const t of TURRET_TYPES) {
   const card = document.createElement('div');
   card.className = 'tower-card';
@@ -190,24 +215,11 @@ for (const t of TURRET_TYPES) {
   const stats = document.createElement('div');
   stats.className = 'tower-stats';
   if (t.bulletType === 'none') {
-    // Barracks: spawns melee Defenders instead of firing. Defender combat stats
-    // come from DEFENDER_TYPE, the same source the game uses.
-    stats.innerHTML = `
-      Cost: <span>${t.cost}g</span><br>
-      Defenders: <span>${t.defenderCount}</span><br>
-      Defender HP: <span>${DEFENDER_TYPE.hp}</span><br>
-      Defender dmg: <span>${DEFENDER_TYPE.damage}</span><br>
-      Perimeter: <span>${t.range}px</span><br>
-      Respawn: <span>${(t.respawnDelay / 1000).toFixed(0)}s</span>
-    `;
+    // Barracks: spawns melee units instead of firing. Unit combat stats come from
+    // defenderForLevel(1) — the same source the game uses.
+    stats.innerHTML = barracksStatsHtml(t, defenderForLevel(1), 'Cost');
   } else {
-    stats.innerHTML = `
-      Cost: <span>${t.cost}g</span><br>
-      Damage: <span>${t.damage}</span><br>
-      Fire rate: <span>${(1000 / t.fireRate).toFixed(1)}/s</span><br>
-      Range: <span>${t.range}px</span><br>
-      Bullet: <span>${t.bulletType}</span>${t.splashRadius ? `<br>Splash: <span>${t.splashRadius}px</span>` : ''}
-    `;
+    stats.innerHTML = projectileStatsHtml(t, 'Cost');
   }
   base.appendChild(stats);
 
@@ -216,9 +228,11 @@ for (const t of TURRET_TYPES) {
     const sec = document.createElement('div');
     sec.className = 'tower-upgrade';
 
+    const level = i + 2;   // upgrade i → tower level i+2
+
     const label = document.createElement('div');
     label.className = 'tower-stats';
-    label.innerHTML = `▲ Level ${i + 2} — Upgrade: <span>${up.cost}g</span>`;
+    label.innerHTML = `▲ Level ${level}`;
     sec.appendChild(label);
 
     if (up.image) {
@@ -231,37 +245,15 @@ for (const t of TURRET_TYPES) {
       sec.appendChild(upImg);
     }
 
-    // List only the stat fields this upgrade overrides (skip art/cost meta),
-    // formatting known fields for readability.
-    const fmt = (k, v) => {
-      switch (k) {
-        case 'damage':       return `Damage: <span>${v}</span>`;
-        case 'range':        return `Range: <span>${v}px</span>`;
-        case 'fireRate':     return `Fire rate: <span>${(1000 / v).toFixed(1)}/s</span>`;
-        case 'respawnDelay': return `Respawn: <span>${(v / 1000).toFixed(0)}s</span>`;
-        case 'defenderCount':return `Defenders: <span>${v}</span>`;
-        default:             return `${k}: <span>${v}</span>`;
-      }
-    };
-    const changed = Object.entries(up)
-      .filter(([k]) => k !== 'image' && k !== 'cost')
-      .map(([k, v]) => fmt(k, v))
-      .join('<br>');
-    if (changed) {
-      const diff = document.createElement('div');
-      diff.className = 'tower-stats';
-      diff.innerHTML = changed;
-      sec.appendChild(diff);
-    }
-
-    // For a Barracks, also show the upgraded unit it now fields (e.g. Warden).
-    if (t.bulletType === 'none') {
-      const unit = defenderForLevel(i + 2);   // upgrade i → tower level i+2
-      const u = document.createElement('div');
-      u.className = 'tower-stats';
-      u.innerHTML = `Unit: <span>${unit.key}</span><br>Unit HP: <span>${unit.hp}</span><br>Unit dmg: <span>${unit.damage}</span>`;
-      sec.appendChild(u);
-    }
+    // Show the full effective stats at this level (base merged with the upgrade),
+    // labelling the upgrade's own price as "Upgrade Cost".
+    const eff = { ...mergedStats(t, level), cost: upgradeCost(t) };
+    const stats2 = document.createElement('div');
+    stats2.className = 'tower-stats';
+    stats2.innerHTML = t.bulletType === 'none'
+      ? barracksStatsHtml(eff, defenderForLevel(level), 'Upgrade Cost')
+      : projectileStatsHtml(eff, 'Upgrade Cost');
+    sec.appendChild(stats2);
 
     card.appendChild(sec);
   });

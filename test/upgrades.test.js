@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { nextUpgrade, sellRefund, mergedStats } from '../src/logic/upgrades.js';
+import { nextUpgrade, sellRefund, mergedStats, upgradeCost } from '../src/logic/upgrades.js';
 
-// A minimal mage-like def with one upgrade level.
+// A minimal mage-like def with one upgrade level. Upgrade cost is derived
+// (0.7 × base cost), so upgrade entries no longer carry their own cost.
 const mage = {
   key: 'mage',
   image: 'L1.png',
@@ -11,7 +12,7 @@ const mage = {
   cost: 70,
   bulletType: 'orb',
   upgrades: [
-    { image: 'L2.png', cost: 70, damage: 160, range: 195, fireRate: 1200 },
+    { image: 'L2.png', damage: 160, range: 195, fireRate: 1200 },
   ],
 };
 
@@ -36,6 +37,16 @@ describe('sellRefund', () => {
     expect(sellRefund(70)).toBe(35);
     expect(sellRefund(140)).toBe(70);
     expect(sellRefund(75)).toBe(37);
+  });
+});
+
+describe('upgradeCost', () => {
+  it('is 0.8 × base cost, rounded to the nearest whole number', () => {
+    expect(upgradeCost({ cost: 70 })).toBe(56);   // 56.0
+    expect(upgradeCost({ cost: 80 })).toBe(64);   // 64.0
+    expect(upgradeCost({ cost: 100 })).toBe(80);  // 80.0
+    expect(upgradeCost({ cost: 40 })).toBe(32);   // 32.0
+    expect(upgradeCost({ cost: 45 })).toBe(36);   // 36.0
   });
 });
 

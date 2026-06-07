@@ -33,7 +33,7 @@ export const TURRET_TYPES = {
     // Upgrade levels (1-based: base is L1). Each entry overrides a subset of stats
     // and supplies the art for that level. Loaded as turret_mage_2, etc.
     upgrades: [
-      { image: 'assets/towers/Mystic_Dais_Tower.L2.png', cost: 70, damage: 160, range: 195, fireRate: 1200 },
+      { image: 'assets/towers/Mystic_Dais_Tower.L2.png', damage: 160, range: 195, fireRate: 1200 },
     ],
   },
   bomber: {
@@ -67,7 +67,7 @@ export const TURRET_TYPES = {
     // L2: wider patrol + faster reinforcements. (Warden unit swap to follow once
     // its sprite is ready; for now the L2 Barracks still fields the base Defender.)
     upgrades: [
-      { image: 'assets/towers/Defender_Barracks_Tower.L2.png', cost: 80, range: 200, respawnDelay: 4000 },
+      { image: 'assets/towers/Defender_Barracks_Tower.L2.png', range: 200, respawnDelay: 4000 },
     ],
   },
 };
