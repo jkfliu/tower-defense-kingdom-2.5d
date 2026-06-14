@@ -77,7 +77,7 @@ export const ENEMY_TYPES = {
     goldReward: 15,
     // Ranged: halts short of its blocker and looses arrows instead of meleeing.
     attackType: 'ranged',
-    attackRange: 150,        // px proximity to a blocker at which it stops & fires
+    attackRange: 150,        // isometric range ellipse (2:1) at which it stops & fires
     rangedDamage: 14,        // per arrow that connects
     arcHeight: 25,           // shallow lob (towers' arrows arc at 60)
     arcDuration: 0.45,       // s flight time — the window in which a Defender can dodge

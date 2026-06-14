@@ -9,8 +9,8 @@ import {
   pathProgress,
   tickCooldown,
   resolveMelee,
-  shouldFireRanged,
   arrowHits,
+  nearestDefenderInRange,
 } from '../src/logic/combat.js';
 
 describe('inEllipse', () => {
@@ -244,48 +244,64 @@ describe('resolveMelee', () => {
   });
 });
 
-describe('shouldFireRanged', () => {
-  // A ranged enemy stops short and fires when its blocker is within attackRange;
-  // melee enemies never fire regardless of distance.
-  it('is true for a ranged enemy with the blocker inside attackRange', () => {
-    expect(shouldFireRanged('ranged', 120, 150)).toBe(true);
-  });
-
-  it('is true exactly at the range boundary', () => {
-    expect(shouldFireRanged('ranged', 150, 150)).toBe(true);
-  });
-
-  it('is false for a ranged enemy when the blocker is beyond attackRange', () => {
-    expect(shouldFireRanged('ranged', 200, 150)).toBe(false);
-  });
-
-  it('is false for a melee enemy even when in range', () => {
-    expect(shouldFireRanged('melee', 50, 150)).toBe(false);
-  });
-
-  it('is false when attackType is undefined (defaults to melee)', () => {
-    expect(shouldFireRanged(undefined, 50, 150)).toBe(false);
-  });
-});
-
 describe('arrowHits', () => {
   // A dodgeable arrow: it only connects if the target is still alive and within
-  // hitRadius of where the arrow landed. A moved or dead target whiffs.
+  // the isometric hit ellipse (2:1) of where the arrow landed. Moved/dead whiffs.
   const landing = { x: 100, y: 100 };
 
-  it('hits a living target within hitRadius', () => {
+  it('hits a living target within the hit ellipse', () => {
     expect(arrowHits(landing, { x: 110, y: 100, dying: false }, 18)).toBe(true);
   });
 
-  it('whiffs when the target has moved out of hitRadius', () => {
+  it('whiffs when the target has moved out of the hit ellipse', () => {
     expect(arrowHits(landing, { x: 140, y: 100, dying: false }, 18)).toBe(false);
   });
 
-  it('whiffs a dying target even if still in radius', () => {
+  it('uses the 2:1 ellipse — vertical reach is half the radius', () => {
+    // dy = 12 is outside the vertical semi-axis (18*0.5 = 9) → whiff,
+    // even though it is well within 18 by straight-line distance.
+    expect(arrowHits(landing, { x: 100, y: 112, dying: false }, 18)).toBe(false);
+  });
+
+  it('whiffs a dying target even if still in range', () => {
     expect(arrowHits(landing, { x: 100, y: 100, dying: true }, 18)).toBe(false);
   });
 
   it('whiffs when there is no target', () => {
     expect(arrowHits(landing, null, 18)).toBe(false);
+  });
+});
+
+describe('nearestDefenderInRange', () => {
+  // An archer scans for the closest living Defender within its isometric range
+  // ellipse (2:1, same as towers/defenders). Claims don't matter — it fires at any.
+  const pos = { x: 0, y: 0 };
+
+  it('returns null when there are no defenders', () => {
+    expect(nearestDefenderInRange(pos, [], 150)).toBe(null);
+  });
+
+  it('returns null when all defenders are out of range', () => {
+    expect(nearestDefenderInRange(pos, [{ x: 200, y: 0, dying: false }], 150)).toBe(null);
+  });
+
+  it('picks the nearest in-range defender', () => {
+    const near = { x: 40, y: 0, dying: false };
+    const far  = { x: 120, y: 0, dying: false };
+    expect(nearestDefenderInRange(pos, [far, near], 150)).toBe(near);
+  });
+
+  it('skips dying defenders', () => {
+    const dying     = { x: 30, y: 0, dying: true };
+    const available = { x: 90, y: 0, dying: false };
+    expect(nearestDefenderInRange(pos, [dying, available], 150)).toBe(available);
+  });
+
+  it('uses the 2:1 ellipse — vertical reach is half the radius', () => {
+    // y=120 is inside a 150px circle but OUTSIDE the ellipse (vertical
+    // semi-axis 75 = range*0.5), so it must NOT count as in range.
+    expect(nearestDefenderInRange(pos, [{ x: 0, y: 120, dying: false }], 150)).toBe(null);
+    // y=70 is within the vertical semi-axis → in range.
+    expect(nearestDefenderInRange(pos, [{ x: 0, y: 70, dying: false }], 150)).not.toBe(null);
   });
 });

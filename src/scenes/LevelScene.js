@@ -6,7 +6,7 @@ import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defende
 import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
   closestPointOnPath, pointAlongPath, pathProgress, tickCooldown,
-  shouldFireRanged, arrowHits,
+  arrowHits, nearestDefenderInRange,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { makeButton } from '../utils/button.js';
@@ -1433,6 +1433,8 @@ export default class LevelScene extends Phaser.Scene {
       hp: typeDef.hp,
       maxHp: typeDef.hp,
       attackCooldown: 0,   // ranged enemies: ms until the next arrow may be loosed
+      firing: false,       // ranged enemies: parked to shoot (towers won't lead the shot)
+      hurting: false,      // mid hurt-flinch — don't let other anims stomp it
       dying: false,
     });
   }
@@ -1476,10 +1478,14 @@ export default class LevelScene extends Phaser.Scene {
       soundManager.playEnemyHit();
     }
     if (!enemy.dying && enemy.sprite.anims.currentAnim?.key !== `${enemy.type}_hurt`) {
+      enemy.hurting = true;
       enemy.sprite.removeAllListeners('animationcomplete');
       enemy.sprite.play(`${enemy.type}_hurt`);
       enemy.sprite.once('animationcomplete', () => {
-        if (!enemy.dying) enemy.sprite.play(`${enemy.type}_walk`);
+        enemy.hurting = false;
+        // A parked archer resumes its shoot/idle pose via _updateEnemies next frame;
+        // only a moving enemy needs to be put back into its walk cycle here.
+        if (!enemy.dying && !enemy.firing) enemy.sprite.play(`${enemy.type}_walk`);
       });
     }
   }
@@ -1680,11 +1686,11 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _predictPath(enemy, seconds) {
-    // An enemy locked in melee by a Defender is stationary — don't lead the shot
-    // ahead of it, or projectiles will overshoot a target that isn't moving.
-    // (A merely-reserved enemy is still walking, so only halt prediction when its
-    // blocker is actually ENGAGED — matching when _updateEnemies stops it.)
-    if (enemy.blocked && enemy.blocker?.state === 'ENGAGED') {
+    // A stationary enemy must not be led, or projectiles overshoot into empty path.
+    // Two ways an enemy stands still: (1) locked in melee by an ENGAGED blocker (a
+    // merely-reserved enemy is still walking, so check ENGAGED, matching
+    // _updateEnemies); (2) a ranged archer parked to shoot a Defender (`firing`).
+    if (enemy.firing || (enemy.blocked && enemy.blocker?.state === 'ENGAGED')) {
       return { x: enemy.x, y: enemy.y };
     }
     let remaining = enemy.speed * seconds;
@@ -1970,38 +1976,54 @@ export default class LevelScene extends Phaser.Scene {
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (e.dying) continue;
+      const def = ENEMY_TYPES[e.type];
+
+      // Ranged enemies (archers) act independently of the block/claim system: each
+      // frame they scan for the nearest Defender within attackRange and, if one
+      // exists, halt and fire at it — no claim needed, and it works against a
+      // Defender already engaged with someone else. Falls through to walking when
+      // no Defender is in range.
+      if (def.attackType === 'ranged') {
+        const target = nearestDefenderInRange(e, this.defenders, def.attackRange);
+        if (target) {
+          e.firing = true;   // stationary while shooting — towers must not lead the shot
+          e.attackCooldown = tickCooldown(e.attackCooldown ?? 0, dt * 1000);
+          e.sprite.setFlipX(target.x < e.x);
+          const fired = e.attackCooldown <= 0;
+          if (fired) {
+            e.attackCooldown = def.attackRate ?? 1500;
+            this._fireEnemyArrow(e, target);
+          }
+          // Let a flinch (hurt) play through uninterrupted; otherwise drive the
+          // shoot/reload poses. The arrow still looses during a flinch — only the
+          // animation waits.
+          if (!e.hurting) {
+            if (fired) {
+              e.sprite.play(`${e.type}_attack1`, true);
+            } else {
+              // Reloading: hold idle so the archer doesn't keep walking in place.
+              // Let a still-playing attack1 finish before settling to idle.
+              const anims = e.sprite.anims;
+              const playingAttack = anims.isPlaying && anims.currentAnim?.key === `${e.type}_attack1`;
+              if (!playingAttack && anims.currentAnim?.key !== `${e.type}_idle`) {
+                e.sprite.play(`${e.type}_idle`);
+              }
+            }
+          }
+          e.sprite.setPosition(e.x, e.y);
+          e.sprite.setDepth(e.y);
+          continue;
+        }
+      }
 
       // Blocked by a Defender: halt on the path and trade blows instead of moving.
       // Only an ENGAGED blocker stops the enemy — a reserved-but-still-approaching
       // Defender claims the enemy without freezing it mid-path.
       if (e.blocked) {
         const blocker = e.blocker;
-        const def = ENEMY_TYPES[e.type];
         if (!blocker || blocker.dying) {
           // Reserving Defender is gone — release the claim and resume walking.
           this._releaseEnemyClaim(e);
-        } else if (shouldFireRanged(def.attackType, Math.hypot(blocker.x - e.x, blocker.y - e.y), def.attackRange)) {
-          // Ranged: halt as soon as the blocker is within attackRange (no need to
-          // wait for ENGAGED — the archer never closes to melee) and loose arrows.
-          e.attackCooldown = tickCooldown(e.attackCooldown ?? 0, dt * 1000);
-          e.sprite.setFlipX(blocker.x < e.x);
-          if (e.attackCooldown <= 0) {
-            e.attackCooldown = def.attackRate ?? 1500;
-            e.sprite.play(`${e.type}_attack1`, true);
-            this._fireEnemyArrow(e, blocker);
-          } else {
-            // Reloading between shots: stand and hold the idle pose so the archer
-            // doesn't keep playing its walk cycle while stationary. Let a still-
-            // playing attack1 finish first; once it's done (or never started), idle.
-            const anims = e.sprite.anims;
-            const playingAttack = anims.isPlaying && anims.currentAnim?.key === `${e.type}_attack1`;
-            if (!playingAttack && anims.currentAnim?.key !== `${e.type}_idle`) {
-              e.sprite.play(`${e.type}_idle`);
-            }
-          }
-          e.sprite.setPosition(e.x, e.y);
-          e.sprite.setDepth(e.y);
-          continue;
         } else if (blocker.state === 'ENGAGED') {
           // In melee: halt and trade blows.
           e.meleeCooldown = tickCooldown(e.meleeCooldown ?? 0, dt * 1000);
@@ -2016,6 +2038,8 @@ export default class LevelScene extends Phaser.Scene {
         }
         // else: claimed but the Defender is still approaching — keep walking normally.
       }
+
+      e.firing = false;   // reached the movement section — no longer parked to shoot
 
       const target = this.waypoints[e.waypointIdx];
       if (!target) { this._enemyEscaped(e, i); continue; }

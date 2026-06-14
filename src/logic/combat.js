@@ -138,19 +138,28 @@ export function resolveMelee(attackerDamage, targetHp) {
   return targetHp - attackerDamage;
 }
 
-// A ranged enemy stops short of its blocker and looses arrows instead of closing
-// to melee. Only enemies whose attackType is 'ranged' fire, and only once the
-// blocker is within attackRange; everyone else (default melee) returns false.
-export function shouldFireRanged(attackType, distToBlocker, attackRange) {
-  return attackType === 'ranged' && distToBlocker <= attackRange;
+// Nearest living Defender within `pos`'s isometric range ellipse (2:1, same as
+// towers/defenders), ranked by raw distance, or null if none. Used by ranged
+// enemies to pick who to shoot — independent of the block/claim system (an archer
+// fires at any Defender in range, even one already engaged with someone else).
+export function nearestDefenderInRange(pos, defenders, range) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const def of defenders) {
+    if (def.dying) continue;
+    const dx = def.x - pos.x;
+    const dy = def.y - pos.y;
+    if (!inEllipse(dx, dy, range)) continue;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) { best = def; bestDist = d; }
+  }
+  return best;
 }
 
 // Whether a dodgeable enemy arrow connects on arrival: the target must still be
-// alive and within hitRadius of where the arrow landed. A target that died or
-// walked away during the arrow's flight whiffs.
+// alive and within the isometric hit ellipse (2:1) of where the arrow landed. A
+// target that died or walked away during the arrow's flight whiffs.
 export function arrowHits(arrowPos, target, hitRadius) {
   if (!target || target.dying) return false;
-  const dx = target.x - arrowPos.x;
-  const dy = target.y - arrowPos.y;
-  return Math.sqrt(dx * dx + dy * dy) <= hitRadius;
+  return inEllipse(target.x - arrowPos.x, target.y - arrowPos.y, hitRadius);
 }
