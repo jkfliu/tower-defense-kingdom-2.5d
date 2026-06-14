@@ -34,6 +34,7 @@ export const TURRET_TYPES = {
     // and supplies the art for that level. Loaded as turret_mage_2, etc.
     upgrades: [
       { image: 'assets/towers/Mystic_Dais_Tower.L2.png', damage: 160, range: 195, fireRate: 1200 },
+      { image: 'assets/towers/Mystic_Dais_Tower.L3.png', damage: 230, range: 215, fireRate: 1050 },
     ],
   },
   bomber: {

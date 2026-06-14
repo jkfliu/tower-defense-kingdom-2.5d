@@ -13,6 +13,7 @@ const mage = {
   bulletType: 'orb',
   upgrades: [
     { image: 'L2.png', damage: 160, range: 195, fireRate: 1200 },
+    { image: 'L3.png', damage: 230, range: 215, fireRate: 1050 },
   ],
 };
 
@@ -23,8 +24,12 @@ describe('nextUpgrade', () => {
     expect(nextUpgrade(mage, 1)).toBe(mage.upgrades[0]);
   });
 
+  it('returns the level-3 upgrade when at level 2', () => {
+    expect(nextUpgrade(mage, 2)).toBe(mage.upgrades[1]);
+  });
+
   it('returns null when already at max level', () => {
-    expect(nextUpgrade(mage, 2)).toBe(null);
+    expect(nextUpgrade(mage, 3)).toBe(null);
   });
 
   it('returns null for a tower with no upgrades', () => {
@@ -41,12 +46,19 @@ describe('sellRefund', () => {
 });
 
 describe('upgradeCost', () => {
-  it('is 0.8 × base cost, rounded to the nearest whole number', () => {
-    expect(upgradeCost({ cost: 70 })).toBe(56);   // 56.0
-    expect(upgradeCost({ cost: 80 })).toBe(64);   // 64.0
-    expect(upgradeCost({ cost: 100 })).toBe(80);  // 80.0
-    expect(upgradeCost({ cost: 40 })).toBe(32);   // 32.0
-    expect(upgradeCost({ cost: 45 })).toBe(36);   // 36.0
+  it('defaults to the level-1 (first upgrade) price: 0.8 × base cost, rounded', () => {
+    expect(upgradeCost({ cost: 70 })).toBe(56);   // 70 × 0.8 × 1
+    expect(upgradeCost({ cost: 80 })).toBe(64);
+    expect(upgradeCost({ cost: 100 })).toBe(80);
+    expect(upgradeCost({ cost: 40 })).toBe(32);
+    expect(upgradeCost({ cost: 45 })).toBe(36);
+  });
+
+  it('scales linearly with the level being upgraded from: 0.8 × base × level', () => {
+    expect(upgradeCost({ cost: 70 }, 1)).toBe(56);    // L1→L2: 70 × 0.8 × 1
+    expect(upgradeCost({ cost: 70 }, 2)).toBe(112);   // L2→L3: 70 × 0.8 × 2
+    expect(upgradeCost({ cost: 70 }, 3)).toBe(168);   // L3→L4: 70 × 0.8 × 3
+    expect(upgradeCost({ cost: 45 }, 2)).toBe(72);    // rounds: 45 × 0.8 × 2 = 72
   });
 });
 
@@ -68,14 +80,23 @@ describe('mergedStats', () => {
     expect(s.bulletType).toBe('orb');   // not overridden → preserved
   });
 
+  it('applies the level-3 overrides on top of base + L2', () => {
+    const s = mergedStats(mage, 3);
+    expect(s.damage).toBe(230);
+    expect(s.range).toBe(215);
+    expect(s.fireRate).toBe(1050);
+    expect(s.image).toBe('L3.png');
+    expect(s.bulletType).toBe('orb');   // never overridden → preserved
+  });
+
   it('does not mutate the base def', () => {
-    mergedStats(mage, 2);
+    mergedStats(mage, 3);
     expect(mage.damage).toBe(100);
     expect(mage.image).toBe('L1.png');
   });
 
   it('clamps to the highest defined level', () => {
-    const s = mergedStats(mage, 5);   // only 2 levels exist
-    expect(s.damage).toBe(160);
+    const s = mergedStats(mage, 5);   // only 3 levels exist
+    expect(s.damage).toBe(230);
   });
 });

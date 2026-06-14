@@ -1210,7 +1210,7 @@ export default class LevelScene extends Phaser.Scene {
 
     // Upgrade button (only when a further level exists).
     if (up) {
-      const upCost = upgradeCost(def);
+      const upCost = upgradeCost(def, turret.level);
       const affordable = this.gold >= upCost;
       const upgradeBtn = this._makeButton(ox + cardW / 2, oy + 78,
         `Upgrade ${upCost}g`, affordable ? 'gold' : 'dark', 1002, () => {
@@ -1340,7 +1340,7 @@ export default class LevelScene extends Phaser.Scene {
     const def = TURRET_TYPES[turret.type];
     const up  = nextUpgrade(def, turret.level);
     if (!up) return false;
-    const cost = upgradeCost(def);           // derived: 0.7 × base cost
+    const cost = upgradeCost(def, turret.level);   // 0.8 × base × current level
     if (this.gold < cost) return false;
 
     this.gold -= cost;

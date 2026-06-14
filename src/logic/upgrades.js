@@ -15,12 +15,13 @@ export function sellRefund(totalSpent) {
   return Math.floor(totalSpent / 2);
 }
 
-// Cost to upgrade a tower: a fixed fraction of its base build cost, rounded to
-// the nearest whole number. Derived (not stored per-upgrade) so the rule lives
-// in one place.
+// Cost to upgrade a tower: a fixed fraction of its base build cost, scaled
+// linearly by the level being upgraded *from* (1-based), rounded to the nearest
+// whole number. So L1→L2 = base × factor × 1, L2→L3 = base × factor × 2, etc.
+// Derived (not stored per-upgrade) so the rule lives in one place.
 export const UPGRADE_COST_FACTOR = 0.8;
-export function upgradeCost(def) {
-  return Math.round(def.cost * UPGRADE_COST_FACTOR);
+export function upgradeCost(def, level = 1) {
+  return Math.round(def.cost * UPGRADE_COST_FACTOR * level);
 }
 
 // Effective stats for a tower at a given level: the base def with each upgrade up

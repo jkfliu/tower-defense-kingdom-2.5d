@@ -247,7 +247,7 @@ for (const t of TURRET_TYPES) {
 
     // Show the full effective stats at this level (base merged with the upgrade),
     // labelling the upgrade's own price as "Upgrade Cost".
-    const eff = { ...mergedStats(t, level), cost: upgradeCost(t) };
+    const eff = { ...mergedStats(t, level), cost: upgradeCost(t, level - 1) };
     const stats2 = document.createElement('div');
     stats2.className = 'tower-stats';
     stats2.innerHTML = t.bulletType === 'none'
