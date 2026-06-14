@@ -9,6 +9,8 @@ import {
   pathProgress,
   tickCooldown,
   resolveMelee,
+  shouldFireRanged,
+  arrowHits,
 } from '../src/logic/combat.js';
 
 describe('inEllipse', () => {
@@ -239,5 +241,51 @@ describe('resolveMelee', () => {
 
   it('can drop hp to zero or below', () => {
     expect(resolveMelee(120, 100)).toBe(-20);
+  });
+});
+
+describe('shouldFireRanged', () => {
+  // A ranged enemy stops short and fires when its blocker is within attackRange;
+  // melee enemies never fire regardless of distance.
+  it('is true for a ranged enemy with the blocker inside attackRange', () => {
+    expect(shouldFireRanged('ranged', 120, 150)).toBe(true);
+  });
+
+  it('is true exactly at the range boundary', () => {
+    expect(shouldFireRanged('ranged', 150, 150)).toBe(true);
+  });
+
+  it('is false for a ranged enemy when the blocker is beyond attackRange', () => {
+    expect(shouldFireRanged('ranged', 200, 150)).toBe(false);
+  });
+
+  it('is false for a melee enemy even when in range', () => {
+    expect(shouldFireRanged('melee', 50, 150)).toBe(false);
+  });
+
+  it('is false when attackType is undefined (defaults to melee)', () => {
+    expect(shouldFireRanged(undefined, 50, 150)).toBe(false);
+  });
+});
+
+describe('arrowHits', () => {
+  // A dodgeable arrow: it only connects if the target is still alive and within
+  // hitRadius of where the arrow landed. A moved or dead target whiffs.
+  const landing = { x: 100, y: 100 };
+
+  it('hits a living target within hitRadius', () => {
+    expect(arrowHits(landing, { x: 110, y: 100, dying: false }, 18)).toBe(true);
+  });
+
+  it('whiffs when the target has moved out of hitRadius', () => {
+    expect(arrowHits(landing, { x: 140, y: 100, dying: false }, 18)).toBe(false);
+  });
+
+  it('whiffs a dying target even if still in radius', () => {
+    expect(arrowHits(landing, { x: 100, y: 100, dying: true }, 18)).toBe(false);
+  });
+
+  it('whiffs when there is no target', () => {
+    expect(arrowHits(landing, null, 18)).toBe(false);
   });
 });

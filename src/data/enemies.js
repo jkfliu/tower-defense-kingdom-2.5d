@@ -65,6 +65,33 @@ export const ENEMY_TYPES = {
       { key: 'death',   row: 6, frames: 4,  frameRate: 6,  repeat: 0  },
     ],
   },
+  skeletonArcher: {
+    key: 'skeletonArcher',
+    spritesheet: 'assets/enemies/SkeletonArcher-shadow.png',
+    frameWidth: 100,
+    frameHeight: 100,
+    sheetCols: 9,
+    displayScale: 1.8,
+    speed: { base: 70, variance: 20 },   // fast but fragile
+    hp: 70,
+    goldReward: 15,
+    // Ranged: halts short of its blocker and looses arrows instead of meleeing.
+    attackType: 'ranged',
+    attackRange: 150,        // px proximity to a blocker at which it stops & fires
+    rangedDamage: 14,        // per arrow that connects
+    arcHeight: 25,           // shallow lob (towers' arrows arc at 60)
+    arcDuration: 0.45,       // s flight time — the window in which a Defender can dodge
+    arrowHitRadius: 18,      // must be within this of the landing point to take damage
+    attackRate: 1500,        // ms between shots
+    meleeDamage: 6,          // fallback if something ever reaches melee contact
+    animations: [
+      { key: 'idle',    row: 0, frames: 6, frameRate: 8,  repeat: -1 },
+      { key: 'walk',    row: 1, frames: 7, frameRate: 10, repeat: -1 },
+      { key: 'attack1', row: 2, frames: 9, frameRate: 12, repeat: 0  },
+      { key: 'hurt',    row: 3, frames: 4, frameRate: 10, repeat: 0  },
+      { key: 'death',   row: 4, frames: 4, frameRate: 6,  repeat: 0  },
+    ],
+  },
   slime: {
     key: 'slime',
     spritesheet: 'assets/enemies/Slime-shadow.png',

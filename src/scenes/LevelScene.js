@@ -6,6 +6,7 @@ import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defende
 import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
   closestPointOnPath, pointAlongPath, pathProgress, tickCooldown,
+  shouldFireRanged, arrowHits,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { makeButton } from '../utils/button.js';
@@ -26,7 +27,14 @@ export default class LevelScene extends Phaser.Scene {
   constructor() { super('LevelScene'); }
 
   init(data = {}) {
-    this._initLevelId = data.levelId ?? 0;
+    // Two distinct 0-based level indices, easy to confuse:
+    //   _playingLevel  — the level THIS scene is running right now (drives the map,
+    //                    waves, unlocked roster, HUD). Comes from `data.levelId`.
+    //   _frontierLevel — the player's furthest campaign progress (highest level
+    //                    reached). Comes from `data.currentLevel`; set below in create().
+    // Anything about "the level in front of the player" uses _playingLevel; only
+    // campaign-progress decisions (what to unlock on a frontier win) use _frontierLevel.
+    this._playingLevel = data.levelId ?? 0;
     const { towers, enemies } = getUnlocks(data.currentLevel ?? data.levelId ?? 0);
     this._unlockedTowers  = towers;
     this._unlockedEnemies = enemies;
@@ -34,9 +42,9 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   preload() {
-    const level = LEVELS[Math.min(this._initLevelId, LEVELS.length - 1)];
+    const level = LEVELS[Math.min(this._playingLevel, LEVELS.length - 1)];
     this.load.image('bg', level.background);
-    const nextUnlocks = getUnlocks(this._initLevelId + 1);
+    const nextUnlocks = getUnlocks(this._playingLevel + 1);
     for (const enemy of Object.values(ENEMY_TYPES)) {
       if (!this._unlockedEnemies.has(enemy.key) && !nextUnlocks.enemies.has(enemy.key)) continue;
       this.load.spritesheet(enemy.key, enemy.spritesheet, {
@@ -70,6 +78,7 @@ export default class LevelScene extends Phaser.Scene {
     this.load.image('arrow', 'assets/towers/Ammo_Arrow.png');
     this.load.image('orb',   'assets/towers/Ammo_Ecto_Orb.png');
     this.load.image('bomb',  'assets/towers/Ammo_Bomb.png');
+    this.load.image('enemy_arrow', 'assets/enemies/SkeletonArcher-arrow.32x32.png');
     this.load.spritesheet('bomb_explosion', 'assets/towers/Ammo_Bomb_Explosion.png', {
       frameWidth: 64, frameHeight: 64,
     });
@@ -81,9 +90,9 @@ export default class LevelScene extends Phaser.Scene {
     document.getElementById('info').style.display      = '';
     document.getElementById('statusbar').style.display = '';
 
-    this._currentLevel = data.currentLevel ?? this._initLevelId;
-    this.levelConfig   = LEVELS[Math.min(this._initLevelId, LEVELS.length - 1)];
-    document.getElementById('hud-level').textContent = `Level ${this._initLevelId + 1} — ${CAMPAIGN_LEVELS[this._initLevelId]?.name ?? ''}`;
+    this._frontierLevel = data.currentLevel ?? this._playingLevel;
+    this.levelConfig   = LEVELS[Math.min(this._playingLevel, LEVELS.length - 1)];
+    document.getElementById('hud-level').textContent = `Level ${this._playingLevel + 1} — ${CAMPAIGN_LEVELS[this._playingLevel]?.name ?? ''}`;
 
     this._buildAnims();
 
@@ -100,7 +109,7 @@ export default class LevelScene extends Phaser.Scene {
     this.defenderId = 0;
 
     // Economy & game state
-    this.gold        = CAMPAIGN_LEVELS[this._initLevelId]?.startGold ?? 100;
+    this.gold        = CAMPAIGN_LEVELS[this._playingLevel]?.startGold ?? 100;
     this.lives       = this.levelConfig.lives      ?? DEFAULT_LIVES;
     this._waveConfig     = this.levelConfig.waveConfig ?? null;
     this.totalWaves      = this._waveConfig?.length ?? (this.levelConfig.waves ?? DEFAULT_WAVES);
@@ -143,7 +152,7 @@ export default class LevelScene extends Phaser.Scene {
 
     this.retryLevelBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 96, '↺  Retry Level', 'gold', 1300, () => {
       const levelId = LEVELS.indexOf(this.levelConfig);
-      this.scene.start('LevelScene', { levelId, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart });
+      this.scene.start('LevelScene', { levelId, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart });
     });
     this.retryLevelBtn.setVisible(false);
 
@@ -151,7 +160,7 @@ export default class LevelScene extends Phaser.Scene {
     this.backToMapBtn.setVisible(false);
 
     this.quitBtn = this._makeButton(8, 8, '← Map', 'dark', 900, () => this.scene.start('CampaignMapScene', {
-      currentLevel:       this._currentLevel,
+      currentLevel:       this._frontierLevel,
       justCompletedLevel: -1,
       reveal:             false,
       campaignScore:      this._scoreAtLevelStart,
@@ -384,7 +393,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _buildSpawnPool(waveIdx) {
-    const campaignLevel  = CAMPAIGN_LEVELS[this._initLevelId];
+    const campaignLevel  = CAMPAIGN_LEVELS[this._playingLevel];
     const progression    = campaignLevel?.waveProgression ?? {};
     const totalWaves     = this.totalWaves;
     const t = totalWaves > 1 ? waveIdx / (totalWaves - 1) : 0;
@@ -405,11 +414,11 @@ export default class LevelScene extends Phaser.Scene {
     // Only surface "newly unlocked" rewards on a first clear of the frontier level.
     // Replaying an already-cleared level unlocks nothing new.
     const lastLevel   = CAMPAIGN_LEVELS.length - 1;
-    const wonFrontier = this._initLevelId === this._currentLevel && this._currentLevel < lastLevel;
+    const wonFrontier = this._playingLevel === this._frontierLevel && this._frontierLevel < lastLevel;
     let unlocks = [];
     if (wonFrontier) {
-      const curr = getUnlocks(this._currentLevel);
-      const next = getUnlocks(this._currentLevel + 1);
+      const curr = getUnlocks(this._frontierLevel);
+      const next = getUnlocks(this._frontierLevel + 1);
       const newTowers  = [...next.towers ].filter(k => !curr.towers.has(k));
       const newEnemies = [...next.enemies].filter(k => !curr.enemies.has(k));
       unlocks = [
@@ -440,12 +449,12 @@ export default class LevelScene extends Phaser.Scene {
     // or re-reveal the next one.
     const lastLevel = CAMPAIGN_LEVELS.length - 1;
     const wonFrontier = this.phase === 'victory'
-      && this._initLevelId === this._currentLevel
-      && this._currentLevel < lastLevel;
-    const nextLevel = wonFrontier ? this._currentLevel + 1 : this._currentLevel;
+      && this._playingLevel === this._frontierLevel
+      && this._frontierLevel < lastLevel;
+    const nextLevel = wonFrontier ? this._frontierLevel + 1 : this._frontierLevel;
     this.scene.start('CampaignMapScene', {
       currentLevel:       nextLevel,
-      justCompletedLevel: wonFrontier ? this._initLevelId : -1,
+      justCompletedLevel: wonFrontier ? this._playingLevel : -1,
       reveal:             wonFrontier,
       campaignScore:      this.phase === 'gameover' ? 0 : this.score,
     });
@@ -557,7 +566,7 @@ export default class LevelScene extends Phaser.Scene {
     this._overlayFocusGroup?.destroy();
     this._overlayFocusGroup = null;
     const overlayBtns = [];
-    if (showRetryBtn) overlayBtns.push({ btn: this.retryLevelBtn, action: () => { const levelId = LEVELS.indexOf(this.levelConfig); this.scene.start('LevelScene', { levelId, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart }); } });
+    if (showRetryBtn) overlayBtns.push({ btn: this.retryLevelBtn, action: () => { const levelId = LEVELS.indexOf(this.levelConfig); this.scene.start('LevelScene', { levelId, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart }); } });
     if (showBackBtn)  overlayBtns.push({ btn: this.backToMapBtn,  action: () => this._goToMap() });
     if (overlayBtns.length > 0) this._overlayFocusGroup = new FocusGroup(this, overlayBtns);
   }
@@ -667,8 +676,11 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _buildUnlockPreview(belowY) {
-    const prev = getUnlocks(this._currentLevel - 1);
-    const curr = getUnlocks(this._currentLevel);
+    // Preview what THIS level (the one being played) introduces — diff its unlocks
+    // against the previous level. Keyed off _playingLevel, not _frontierLevel
+    // (campaign progress), so replaying an earlier level shows that level's own unlocks.
+    const prev = getUnlocks(this._playingLevel - 1);
+    const curr = getUnlocks(this._playingLevel);
     const newTowers  = [...curr.towers ].filter(k => !prev.towers.has(k));
     const newEnemies = [...curr.enemies].filter(k => !prev.enemies.has(k));
     if (newTowers.length === 0 && newEnemies.length === 0) return null;
@@ -772,7 +784,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _buildAnims() {
-    const nextUnlocks = getUnlocks(this._initLevelId + 1);
+    const nextUnlocks = getUnlocks(this._playingLevel + 1);
     for (const enemy of Object.values(ENEMY_TYPES)) {
       if (!this._unlockedEnemies.has(enemy.key) && !nextUnlocks.enemies.has(enemy.key)) continue;
       this._buildUnitAnims(enemy);
@@ -1033,14 +1045,14 @@ export default class LevelScene extends Phaser.Scene {
 
     const yesBtn = this._makeButton(CANVAS_W / 2 - 54, ry + H - 28, 'Restart', 'gold', 1401, () => {
       this._hideRestartConfirm();
-      this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart });
+      this.scene.restart({ levelId: this._playingLevel, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart });
     }, { shadow: false });
     const noBtn = this._makeButton(CANVAS_W / 2 + 54, ry + H - 28, 'Cancel', 'dark', 1401, () => {
       this._hideRestartConfirm();
     }, { shadow: false });
 
     const focusGroup = new FocusGroup(this, [
-      { btn: yesBtn, action: () => { this._hideRestartConfirm(); this.scene.restart({ levelId: this._currentLevel, currentLevel: this._currentLevel, campaignScore: this._scoreAtLevelStart }); } },
+      { btn: yesBtn, action: () => { this._hideRestartConfirm(); this.scene.restart({ levelId: this._playingLevel, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart }); } },
       { btn: noBtn,  action: () => { this._hideRestartConfirm(); } },
     ], { onEscape: () => this._hideRestartConfirm() });
 
@@ -1420,6 +1432,7 @@ export default class LevelScene extends Phaser.Scene {
       speed: typeDef.speed.base + Math.random() * typeDef.speed.variance,
       hp: typeDef.hp,
       maxHp: typeDef.hp,
+      attackCooldown: 0,   // ranged enemies: ms until the next arrow may be loosed
       dying: false,
     });
   }
@@ -1782,6 +1795,54 @@ export default class LevelScene extends Phaser.Scene {
     }
   }
 
+  // A Skeleton Archer looses a dodgeable arrow at its blocking Defender. Unlike
+  // tower arrows we DON'T lead the target with _predictPath — we aim at where the
+  // Defender stands right now, so it can step out of the way before the arrow lands.
+  _fireEnemyArrow(enemy, blocker) {
+    const def = ENEMY_TYPES[enemy.type];
+    soundManager.playArrowShot();
+    const sprite = this.add.image(enemy.x, enemy.y, 'enemy_arrow').setScale(0.6).setDepth(600);
+    this.bullets.push({
+      bulletType: 'enemyArrow',
+      startX: enemy.x, startY: enemy.y,
+      endX: blocker.x, endY: blocker.y,   // fixed at fire time — dodgeable
+      arcHeight: def.arcHeight,
+      arcDuration: def.arcDuration,
+      elapsed: 0,
+      damage: def.rangedDamage,
+      hitRadius: def.arrowHitRadius,
+      target: blocker,                    // the Defender this arrow was aimed at
+      sprite,
+    });
+  }
+
+  // Mirrors _updateArrow's parabolic flight, but resolves against the Defender it
+  // targeted: on landing, damage only lands if that Defender is still alive and
+  // within hitRadius of the impact point (otherwise it whiffs).
+  _updateEnemyArrow(b, dt, i) {
+    b.elapsed += dt;
+    const tRaw = b.elapsed / b.arcDuration;
+
+    if (tRaw >= 1) {
+      b.sprite.destroy();
+      this.bullets.splice(i, 1);
+      if (arrowHits({ x: b.endX, y: b.endY }, b.target, b.hitRadius)) {
+        this._applyDefenderHit(b.target, b.damage);
+      }
+      return;
+    }
+
+    const tc    = Math.min(tRaw, 1);
+    const prevT = Math.max(0, tc - 0.01);
+    const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
+    const px = b.startX + (b.endX - b.startX) * tc;
+    const py = b.startY + (b.endY - b.startY) * tc + arcY(tc);
+    const qx = b.startX + (b.endX - b.startX) * prevT;
+    const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
+    b.sprite.setPosition(px, py);
+    b.sprite.setRotation(Math.atan2(py - qy, px - qx));
+  }
+
   _fireBomb(t, nearest) {
     const { x: endX, y: endY } = this._predictPath(nearest, t.arcDuration);
     soundManager.playBombShot();
@@ -1915,16 +1976,40 @@ export default class LevelScene extends Phaser.Scene {
       // Defender claims the enemy without freezing it mid-path.
       if (e.blocked) {
         const blocker = e.blocker;
+        const def = ENEMY_TYPES[e.type];
         if (!blocker || blocker.dying) {
           // Reserving Defender is gone — release the claim and resume walking.
           this._releaseEnemyClaim(e);
+        } else if (def.attackType === 'ranged' &&
+                   shouldFireRanged('ranged', Math.hypot(blocker.x - e.x, blocker.y - e.y), def.attackRange)) {
+          // Ranged: halt as soon as the blocker is within attackRange (no need to
+          // wait for ENGAGED — the archer never closes to melee) and loose arrows.
+          e.attackCooldown = tickCooldown(e.attackCooldown ?? 0, dt * 1000);
+          e.sprite.setFlipX(blocker.x < e.x);
+          if (e.attackCooldown <= 0) {
+            e.attackCooldown = def.attackRate ?? 1500;
+            e.sprite.play(`${e.type}_attack1`, true);
+            this._fireEnemyArrow(e, blocker);
+          } else {
+            // Reloading between shots: stand and hold the idle pose so the archer
+            // doesn't keep playing its walk cycle while stationary. Let a still-
+            // playing attack1 finish first; once it's done (or never started), idle.
+            const anims = e.sprite.anims;
+            const playingAttack = anims.isPlaying && anims.currentAnim?.key === `${e.type}_attack1`;
+            if (!playingAttack && anims.currentAnim?.key !== `${e.type}_idle`) {
+              e.sprite.play(`${e.type}_idle`);
+            }
+          }
+          e.sprite.setPosition(e.x, e.y);
+          e.sprite.setDepth(e.y);
+          continue;
         } else if (blocker.state === 'ENGAGED') {
           // In melee: halt and trade blows.
           e.meleeCooldown = tickCooldown(e.meleeCooldown ?? 0, dt * 1000);
           if (e.meleeCooldown <= 0) {
-            e.meleeCooldown = ENEMY_TYPES[e.type].attackRate ?? 1000;
+            e.meleeCooldown = def.attackRate ?? 1000;
             e.sprite.setFlipX(blocker.x < e.x);
-            this._applyDefenderHit(blocker, ENEMY_TYPES[e.type].meleeDamage ?? 10);
+            this._applyDefenderHit(blocker, def.meleeDamage ?? 10);
           }
           e.sprite.setPosition(e.x, e.y);
           e.sprite.setDepth(e.y);
@@ -1950,6 +2035,11 @@ export default class LevelScene extends Phaser.Scene {
         e.x += (dx / dist) * e.speed * dt;
         e.y += (dy / dist) * e.speed * dt;
         e.sprite.setFlipX(dx < 0);
+        // Resume the walk cycle if a previous state left a non-walk pose playing
+        // (e.g. a ranged archer that held idle while shooting, now moving again).
+        if (e.sprite.anims.currentAnim?.key !== `${e.type}_walk`) {
+          e.sprite.play(`${e.type}_walk`);
+        }
       }
 
       e.sprite.setPosition(e.x, e.y);
@@ -1978,9 +2068,10 @@ export default class LevelScene extends Phaser.Scene {
   _updateBullets(dt) {
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
-      if (b.bulletType === 'arrow')    this._updateArrow(b, dt, i);
-      else if (b.bulletType === 'bomb') this._updateBomb(b, dt, i);
-      else                              this._updateOrb(b, dt, i);
+      if (b.bulletType === 'arrow')         this._updateArrow(b, dt, i);
+      else if (b.bulletType === 'enemyArrow') this._updateEnemyArrow(b, dt, i);
+      else if (b.bulletType === 'bomb')      this._updateBomb(b, dt, i);
+      else                                   this._updateOrb(b, dt, i);
     }
   }
 

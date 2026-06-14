@@ -106,6 +106,19 @@ const CANVAS_W = 900, CANVAS_H = 560;
 const TURRET_TYPES = Object.values(GAME_TURRETS);
 const LEVELS = GAME_LEVELS.map((lv, i) => ({ campaignId: i, background: lv.background }));
 
+// Code index (0-based) of the first campaign level that unlocks an enemy, or -1
+// if it's never unlocked. Shared by the "Unlocks at" label and the card sort.
+function enemyUnlockIndex(enemyKey) {
+  return CAMPAIGN_LEVELS.findIndex(cl => cl.unlocks?.enemies?.includes(enemyKey));
+}
+
+// Human-readable "Unlocks at" for an enemy. Levels are 0-based in code but 1-based
+// for players (index 0 = "Level 1"), so we render index + 1. Null if never unlocked.
+function enemyUnlockLabel(enemyKey) {
+  const idx = enemyUnlockIndex(enemyKey);
+  return idx === -1 ? null : `Level ${idx + 1} — ${CAMPAIGN_LEVELS[idx].name}`;
+}
+
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const ENEMY_TYPES = Object.values(GAME_ENEMIES).map(e => {
   const walk = e.animations.find(a => a.key === 'walk') ?? { row: 1, frames: 1 };
@@ -267,7 +280,14 @@ const ENEMY_SIZE = 120;
 const FRAME_W = 100, FRAME_H = 100;
 let globalFps = 10;
 
-for (const e of ENEMY_TYPES) {
+// Order cards by unlock level, then by HP within a level (never-unlocked sink last).
+const sortedEnemies = [...ENEMY_TYPES].sort((a, b) => {
+  const ua = enemyUnlockIndex(a.key), ub = enemyUnlockIndex(b.key);
+  const la = ua === -1 ? Infinity : ua, lb = ub === -1 ? Infinity : ub;
+  return la - lb || a.hp - b.hp;
+});
+
+for (const e of sortedEnemies) {
   const card = document.createElement('div');
   card.className = 'enemy-card';
 
@@ -282,10 +302,11 @@ for (const e of ENEMY_TYPES) {
 
   const stats = document.createElement('div');
   stats.className = 'enemy-stats';
+  const unlockLabel = enemyUnlockLabel(e.key);
   stats.innerHTML = `
     HP: <span>${e.hp}</span><br>
     Speed: <span>${e.speed.base}–${e.speed.base + e.speed.variance}px/s</span><br>
-    Gold: <span>${e.goldReward}g</span>${e.damageResist ? '<br>' + Object.entries(e.damageResist).map(([k,v]) => `Resist Magic: <span>${Math.round((1-v)*100)}%</span>`).join('<br>') : ''}
+    Gold: <span>${e.goldReward}g</span>${e.damageResist ? '<br>' + Object.entries(e.damageResist).map(([k,v]) => `Resist Magic: <span>${Math.round((1-v)*100)}%</span>`).join('<br>') : ''}${unlockLabel ? `<br>Unlocks at: <span>${unlockLabel}</span>` : ''}
   `;
   card.appendChild(stats);
 

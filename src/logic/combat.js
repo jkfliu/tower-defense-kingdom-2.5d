@@ -137,3 +137,20 @@ export function tickCooldown(current, delta) {
 export function resolveMelee(attackerDamage, targetHp) {
   return targetHp - attackerDamage;
 }
+
+// A ranged enemy stops short of its blocker and looses arrows instead of closing
+// to melee. Only enemies whose attackType is 'ranged' fire, and only once the
+// blocker is within attackRange; everyone else (default melee) returns false.
+export function shouldFireRanged(attackType, distToBlocker, attackRange) {
+  return attackType === 'ranged' && distToBlocker <= attackRange;
+}
+
+// Whether a dodgeable enemy arrow connects on arrival: the target must still be
+// alive and within hitRadius of where the arrow landed. A target that died or
+// walked away during the arrow's flight whiffs.
+export function arrowHits(arrowPos, target, hitRadius) {
+  if (!target || target.dying) return false;
+  const dx = target.x - arrowPos.x;
+  const dy = target.y - arrowPos.y;
+  return Math.sqrt(dx * dx + dy * dy) <= hitRadius;
+}
