@@ -1980,8 +1980,7 @@ export default class LevelScene extends Phaser.Scene {
         if (!blocker || blocker.dying) {
           // Reserving Defender is gone — release the claim and resume walking.
           this._releaseEnemyClaim(e);
-        } else if (def.attackType === 'ranged' &&
-                   shouldFireRanged('ranged', Math.hypot(blocker.x - e.x, blocker.y - e.y), def.attackRange)) {
+        } else if (shouldFireRanged(def.attackType, Math.hypot(blocker.x - e.x, blocker.y - e.y), def.attackRange)) {
           // Ranged: halt as soon as the blocker is within attackRange (no need to
           // wait for ENGAGED — the archer never closes to melee) and loose arrows.
           e.attackCooldown = tickCooldown(e.attackCooldown ?? 0, dt * 1000);
