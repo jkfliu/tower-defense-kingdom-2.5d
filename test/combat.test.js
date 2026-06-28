@@ -16,6 +16,8 @@ import {
   clampToEllipse,
   nearestPath,
   arcPosition,
+  defenderShouldDropTarget,
+  withinMelee,
 } from '../src/logic/combat.js';
 
 describe('inEllipse', () => {
@@ -471,5 +473,37 @@ describe('arcPosition', () => {
     const sloped = arcPosition({ x: 0, y: 0 }, { x: 0, y: 100 }, 20, 0.5);
     // linear y = 50, arc = -20 → 30
     expect(sloped.y).toBeCloseTo(30);
+  });
+});
+
+describe('defenderShouldDropTarget', () => {
+  // A defender drops its target when it has none, the target died, or the target
+  // left the tower's range ellipse (centered on the tower, 2:1).
+  const tower = { cx: 0, cy: 0, range: 100 };
+
+  it('drops when there is no target', () => {
+    expect(defenderShouldDropTarget(null, tower)).toBe(true);
+  });
+
+  it('drops a dying target', () => {
+    expect(defenderShouldDropTarget({ x: 10, y: 0, dying: true }, tower)).toBe(true);
+  });
+
+  it('keeps a live target inside range', () => {
+    expect(defenderShouldDropTarget({ x: 50, y: 0, dying: false }, tower)).toBe(false);
+  });
+
+  it('drops a target that wandered out of the range ellipse', () => {
+    expect(defenderShouldDropTarget({ x: 150, y: 0, dying: false }, tower)).toBe(true);
+  });
+});
+
+describe('withinMelee', () => {
+  it('true when within the melee range', () => {
+    expect(withinMelee({ x: 0, y: 0 }, { x: 3, y: 4 }, 5)).toBe(true);   // dist 5
+  });
+
+  it('false when beyond the melee range', () => {
+    expect(withinMelee({ x: 0, y: 0 }, { x: 3, y: 4 }, 4)).toBe(false);  // dist 5 > 4
   });
 });

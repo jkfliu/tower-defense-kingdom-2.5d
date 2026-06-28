@@ -45,6 +45,21 @@ export function pickDefenderTarget(pos, enemies, range) {
   return nearestEnemyInRange(pos, enemies, range, { skipBlocked: true });
 }
 
+// Whether a Defender should drop its current target: no target, the target died, or
+// it left the tower's range ellipse (centered on the tower, 2:1). `tower` is { cx, cy,
+// range }.
+export function defenderShouldDropTarget(target, tower) {
+  if (!target || target.dying) return true;
+  return !inEllipse(target.x - tower.cx, target.y - tower.cy, tower.range);
+}
+
+// Whether `a` is within `meleeRange` of `b` (plain Euclidean distance).
+export function withinMelee(a, b, meleeRange) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  return Math.sqrt(dx * dx + dy * dy) <= meleeRange;
+}
+
 // Move `pos` toward `target` by speed*dt. Snaps and reports `arrived` when the
 // remaining distance is within a single step. `dx` carries the x-direction sign
 // for sprite flipping.

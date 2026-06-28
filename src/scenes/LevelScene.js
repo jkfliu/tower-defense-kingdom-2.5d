@@ -4,8 +4,8 @@ import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
 import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defenders.js';
 import {
-  inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
-  tickCooldown,
+  nearestEnemyInRange, pickDefenderTarget, stepToward,
+  tickCooldown, defenderShouldDropTarget, withinMelee,
   arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal, clampToEllipse, nearestPath, arcPosition,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
@@ -1767,8 +1767,7 @@ export default class LevelScene extends Phaser.Scene {
       def.attackCooldown = tickCooldown(def.attackCooldown, deltaMs);
 
       // Drop a target that died or wandered out of the perimeter.
-      if (def.target && (def.target.dying ||
-          !inEllipse(def.target.x - def.tower.cx, def.target.y - def.tower.cy, def.tower.range))) {
+      if (def.target && defenderShouldDropTarget(def.target, def.tower)) {
         this._releaseTarget(def);
         def.target = null;
         if (def.state === 'ENGAGED' || def.state === 'SEEKING') def.state = 'RETURNING';
@@ -1804,9 +1803,7 @@ export default class LevelScene extends Phaser.Scene {
           def.x = r.x; def.y = r.y;
           if (r.dx !== 0) def.sprite.setFlipX(r.dx < 0);
           this._playDefenderAnim(def, 'walk');
-          const dx = def.target.x - def.x;
-          const dy = def.target.y - def.y;
-          if (Math.sqrt(dx * dx + dy * dy) <= d.meleeRange) {
+          if (withinMelee(def, def.target, d.meleeRange)) {
             // Already reserved at selection; engaging is what halts the enemy.
             def.state = 'ENGAGED';
           }
