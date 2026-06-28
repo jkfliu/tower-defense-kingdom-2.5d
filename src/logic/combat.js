@@ -7,6 +7,21 @@ export function inEllipse(dx, dy, range) {
   return Math.sqrt((dx / range) ** 2 + (dy / (range * 0.5)) ** 2) <= 1;
 }
 
+// Clamp a point to a tower's isometric range ellipse (semi-axes range / range*0.5)
+// centered at (cx, cy). Points inside are returned as-is; points outside are pulled
+// onto the boundary along the line from the center. Used to keep a Barracks rally
+// anchor within engagement range.
+export function clampToEllipse(cx, cy, range, x, y) {
+  const dx = x - cx;
+  const dy = y - cy;
+  // Normalize into unit-circle space; the ellipse becomes a unit circle there.
+  const nx = dx / range;
+  const ny = dy / (range * 0.5);
+  const dist = Math.sqrt(nx * nx + ny * ny);
+  if (dist <= 1 || dist === 0) return { x, y };
+  return { x: cx + (nx / dist) * range, y: cy + (ny / dist) * (range * 0.5) };
+}
+
 // Nearest living enemy inside the isometric perimeter, ranked by raw distance.
 // `skipBlocked` excludes enemies already claimed by a Defender — used by Defender
 // targeting (no gang-ups); towers leave it false so they still fire on blocked enemies.
@@ -64,6 +79,24 @@ export function closestPointOnPath(pos, waypoints) {
     const dy = pos.y - fy;
     const d = dx * dx + dy * dy;
     if (d < bestDist) { bestDist = d; best = { x: fx, y: fy, segIdx: i, t }; }
+  }
+  return best;
+}
+
+// Of several paths, the one whose closest point is nearest to `pos`. Returns
+// `{ pathIdx, point }` (point is the closestPointOnPath result on the chosen path),
+// or null if there are no paths. Used to orient a Barracks rally to whichever route
+// it actually sits on when multiple paths run through its range.
+export function nearestPath(pos, paths) {
+  let best = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < paths.length; i++) {
+    const c = closestPointOnPath(pos, paths[i]);
+    if (!c) continue;
+    const dx = pos.x - c.x;
+    const dy = pos.y - c.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) { bestDist = d; best = { pathIdx: i, point: c }; }
   }
   return best;
 }

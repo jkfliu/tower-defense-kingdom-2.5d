@@ -13,6 +13,8 @@ import {
   nearestDefenderInRange,
   enemiesInRadius,
   applyHeal,
+  clampToEllipse,
+  nearestPath,
 } from '../src/logic/combat.js';
 
 describe('inEllipse', () => {
@@ -358,5 +360,79 @@ describe('applyHeal', () => {
 
   it('is a no-op effect when already at full', () => {
     expect(applyHeal(100, 25, 100)).toBe(100);
+  });
+});
+
+describe('clampToEllipse', () => {
+  // Clamp a point to a tower's isometric range ellipse (2:1, semi-axes range / range*0.5)
+  // centered at (cx, cy). Points inside are returned unchanged; points outside are
+  // pulled onto the ellipse boundary. Used to keep a Barracks rally anchor in range.
+  const cx = 100, cy = 100, range = 80;
+
+  it('returns a point inside the ellipse unchanged', () => {
+    const r = clampToEllipse(cx, cy, range, 120, 110);
+    expect(r.x).toBeCloseTo(120);
+    expect(r.y).toBeCloseTo(110);
+  });
+
+  it('returns the center unchanged', () => {
+    const r = clampToEllipse(cx, cy, range, cx, cy);
+    expect(r.x).toBeCloseTo(cx);
+    expect(r.y).toBeCloseTo(cy);
+  });
+
+  it('pulls a point outside back onto the boundary', () => {
+    // Far to the right — clamps to the horizontal semi-axis (cx + range).
+    const r = clampToEllipse(cx, cy, range, cx + 500, cy);
+    expect(r.x).toBeCloseTo(cx + range);
+    expect(r.y).toBeCloseTo(cy);
+  });
+
+  it('respects the 2:1 ratio on the vertical axis', () => {
+    // Far below — clamps to the vertical semi-axis (cy + range*0.5).
+    const r = clampToEllipse(cx, cy, range, cx, cy + 500);
+    expect(r.x).toBeCloseTo(cx);
+    expect(r.y).toBeCloseTo(cy + range * 0.5);
+  });
+
+  it('a clamped point lies on (within range of) the ellipse perimeter', () => {
+    const r = clampToEllipse(cx, cy, range, cx + 300, cy - 300);
+    expect(inEllipse(r.x - cx, r.y - cy, range)).toBe(true);
+    // and it should be essentially on the boundary, not deep inside
+    const onEdge = Math.sqrt(((r.x - cx) / range) ** 2 + ((r.y - cy) / (range * 0.5)) ** 2);
+    expect(onEdge).toBeCloseTo(1, 5);
+  });
+});
+
+describe('nearestPath', () => {
+  // Picks which of several paths a point is closest to (by closest point on each
+  // polyline). Used to orient a Barracks rally to the right route on multi-path levels.
+  const pathA = [{ x: 0, y: 0 }, { x: 100, y: 0 }];      // horizontal along y=0
+  const pathB = [{ x: 0, y: 200 }, { x: 100, y: 200 }];  // horizontal along y=200
+
+  it('returns null when there are no paths', () => {
+    expect(nearestPath({ x: 0, y: 0 }, [])).toBe(null);
+  });
+
+  it('picks the closer path and reports its index', () => {
+    const r = nearestPath({ x: 50, y: 10 }, [pathA, pathB]);
+    expect(r.pathIdx).toBe(0);
+  });
+
+  it('picks the second path when the point is nearer it', () => {
+    const r = nearestPath({ x: 50, y: 190 }, [pathA, pathB]);
+    expect(r.pathIdx).toBe(1);
+  });
+
+  it('returns the closest point on the chosen path', () => {
+    const r = nearestPath({ x: 50, y: 10 }, [pathA, pathB]);
+    expect(r.point.x).toBeCloseTo(50);
+    expect(r.point.y).toBeCloseTo(0);
+    expect(r.point.segIdx).toBe(0);
+  });
+
+  it('with a single path always returns index 0', () => {
+    const r = nearestPath({ x: 50, y: 999 }, [pathA]);
+    expect(r.pathIdx).toBe(0);
   });
 });

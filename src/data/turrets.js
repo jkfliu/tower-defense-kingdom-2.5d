@@ -64,7 +64,7 @@ export const TURRET_TYPES = {
     bulletType: 'none',   // spawns Defenders instead of firing projectiles
     defenderCount: 2,
     respawnDelay: 5000,   // ms before a dead Defender respawns
-    rallyStagger: 25,     // px each Defender stands up-/down-path from the choke
+    rallyStagger: 25,     // ring radius (px) defenders spread around the rally anchor
     // L2: wider patrol + faster reinforcements. (Warden unit swap to follow once
     // its sprite is ready; for now the L2 Barracks still fields the base Defender.)
     upgrades: [

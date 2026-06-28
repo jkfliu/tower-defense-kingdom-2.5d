@@ -1,5 +1,8 @@
 # TODO
 
+## Display
+- [ ] **(Priority)** Encapsulate the whole display into a single canvas that maximises to the display device. Today the canvas is a fixed 900×560 (`CANVAS_W`/`CANVAS_H` in `constants.js`, no Phaser Scale mode) and the HUD / info bar / status bar are separate HTML DOM elements in `index.html` stacked around `#game-container`. Goal: one responsive canvas that scales to the viewport (likely `Phaser.Scale.FIT` + `autoCenter`), with the HUD/info/status either drawn inside the canvas or scaled with it. Watch: pointer coords (input math assumes native 900×560 — must map screen→canvas space), DEV_MODE editor coord export, and crisp scaling on hi-DPI.
+
 ## Levels
 - [ ] Add additional levels (Level 3 onwards)
 - [ ] Multi-path support — engine + editor done (Easy = path 0; Medium spreads spawns across all `level.paths`; editor edits every path; export dumps all paths). REMAINING: supply secondary path waypoints for Mudflats and Stoneback Ridge (Goblin Warren done).
@@ -8,7 +11,6 @@
 - [ ] Add Veteran difficulty + per-difficulty stat scaling (HP/count/gold) — config in `src/logic/difficulty.js` is structured for it
 
 ## Turrets
-- [ ] **(Priority)** User-defined rally points for Barracks defenders — let the player drag/set where a Barracks' defenders stand guard, instead of the fixed auto-placed rally points
 - [ ] Tower upgrade tiers (3 tiers per type)
 
 ## Assets
@@ -31,8 +33,11 @@
 - [x] Add Level 2 (Goblin Warren) with map, waypoints, placement zones, per-wave difficulty
 - [x] Unlock Preview card at level start showing newly available towers and enemies
 - [x] Campaign score persisted across levels, reset on game over
+- [x] Difficulty select (Easy/Medium) on the level Begin popup — segmented toggle, Medium disabled on single-path levels
+- [x] Multi-path support — `paths[]` data model; Easy uses path 0, Medium spreads spawns across all paths; per-enemy assigned path; editor edits every path and exports all paths
 
 ### Turrets
+- [x] User-defined rally points for Barracks defenders — "Set Rally Point" button in the Barracks popup enters drag-to-place mode; anchor clamped to tower range; non-engaged defenders move immediately
 - [x] Set up sprites for Arrow tower and bullets
 - [x] Restrict placement of turrets (only allow on valid zones)
 - [x] Tower sell mechanic (50% refund)
@@ -52,7 +57,7 @@
 
 ### UI
 - [x] Created Debug mode (keyboard "D")
-- [x] Extend editor mode to support editing path waypoints (drag, insert, delete)
+- [x] Extend editor mode to support editing path waypoints (drag, insert, delete) — across all paths on multi-path levels
 - [x] Set up DEV_MODE flag enabled at run-time for easier debugging
 - [x] Refactored pop-up screens, enabled FocusGroup keyboard navigation (Enter/Space confirm, Left/Right/Tab cycle, Escape dismiss)
 - [x] Keyboard nav on Campaign map Begin popup, Restart confirm, Sell popup, Game Over overlay
