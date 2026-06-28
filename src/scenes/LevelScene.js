@@ -12,15 +12,15 @@ import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { activePathCount, pickPathIndex } from '../logic/difficulty.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
+import { titleCaseKey } from '../utils/text.js';
 import { soundManager } from '../utils/sound.js';
 
 const TOWER_SELL_HIT_R  = 28;
 const WP_HIT_R          = 30;
 
-// Title-case an enemy key for display: 'skeletonArcher' → 'Skeleton Archer',
-// 'evilPriest' → 'Evil Priest'. Mirrors dictionary.html's label logic.
-const enemyLabel = key =>
-  key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+// Enemy keys are title-cased for display via the shared util (also used by the
+// dictionary page) — 'skeletonArcher' → 'Skeleton Archer'.
+const enemyLabel = titleCaseKey;
 
 // First frame of the Defender's walk row — held as a stand-in "idle" pose, since
 // the spritesheet has no idle row. Derived once from the static data.
