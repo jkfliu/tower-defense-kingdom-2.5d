@@ -5,8 +5,8 @@ import { TURRET_TYPES } from '../data/turrets.js';
 import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defenders.js';
 import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
-  closestPointOnPath, pointAlongPath, pathProgress, tickCooldown,
-  arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal,
+  tickCooldown,
+  arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal, clampToEllipse, nearestPath,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { activePathCount, pickPathIndex } from '../logic/difficulty.js';
@@ -41,16 +41,30 @@ export default class LevelScene extends Phaser.Scene {
     // Anything about "the level in front of the player" uses _playingLevel; only
     // campaign-progress decisions (what to unlock on a frontier win) use _frontierLevel.
     this._playingLevel = data.levelId ?? 0;
-    const { towers, enemies } = getUnlocks(data.currentLevel ?? data.levelId ?? 0);
+    // Roster is what THIS level has unlocked — via _playingUnlocks (keyed off
+    // _playingLevel), never the campaign frontier. See the getters below.
+    const { towers, enemies } = this._playingUnlocks;
     this._unlockedTowers  = towers;
     this._unlockedEnemies = enemies;
     if (this.textures.exists('bg')) this.textures.remove('bg');
   }
 
+  // ─── Level-context accessors ────────────────────────────────────────────────
+  // Intention-named so call sites never pass a bare level index (which silently
+  // confuses _playingLevel with _frontierLevel — the source of repeated bugs).
+  //   *Playing*  → the level being played right now (map, waves, roster, HUD).
+  //   *Next*     → the level after this one (preload lookahead, unlock teaser).
+  //   *Frontier* → the player's furthest campaign progress (frontier-win rewards).
+  get _playingConfig()   { return LEVELS[Math.min(this._playingLevel, LEVELS.length - 1)]; }
+  get _playingCampaign() { return CAMPAIGN_LEVELS[this._playingLevel]; }
+  get _playingUnlocks()  { return getUnlocks(this._playingLevel); }
+  get _nextUnlocks()     { return getUnlocks(this._playingLevel + 1); }
+  get _frontierUnlocks() { return getUnlocks(this._frontierLevel); }
+
   preload() {
-    const level = LEVELS[Math.min(this._playingLevel, LEVELS.length - 1)];
+    const level = this._playingConfig;
     this.load.image('bg', level.background);
-    const nextUnlocks = getUnlocks(this._playingLevel + 1);
+    const nextUnlocks = this._nextUnlocks;
     for (const enemy of Object.values(ENEMY_TYPES)) {
       if (!this._unlockedEnemies.has(enemy.key) && !nextUnlocks.enemies.has(enemy.key)) continue;
       this.load.spritesheet(enemy.key, enemy.spritesheet, {
@@ -97,8 +111,7 @@ export default class LevelScene extends Phaser.Scene {
     document.getElementById('statusbar').style.display = '';
 
     this._frontierLevel = data.currentLevel ?? this._playingLevel;
-    this.levelConfig   = LEVELS[Math.min(this._playingLevel, LEVELS.length - 1)];
-    document.getElementById('hud-level').textContent = `Level ${this._playingLevel + 1} — ${CAMPAIGN_LEVELS[this._playingLevel]?.name ?? ''}`;
+    document.getElementById('hud-level').textContent = `Level ${this._playingLevel + 1} — ${this._playingCampaign?.name ?? ''}`;
 
     this._buildAnims();
 
@@ -115,10 +128,10 @@ export default class LevelScene extends Phaser.Scene {
     this.defenderId = 0;
 
     // Economy & game state
-    this.gold        = CAMPAIGN_LEVELS[this._playingLevel]?.startGold ?? 100;
-    this.lives       = this.levelConfig.lives      ?? DEFAULT_LIVES;
-    this._waveConfig     = this.levelConfig.waveConfig ?? null;
-    this.totalWaves      = this._waveConfig?.length ?? (this.levelConfig.waves ?? DEFAULT_WAVES);
+    this.gold        = this._playingCampaign?.startGold ?? 100;
+    this.lives       = this._playingConfig.lives      ?? DEFAULT_LIVES;
+    this._waveConfig     = this._playingConfig.waveConfig ?? null;
+    this.totalWaves      = this._waveConfig?.length ?? (this._playingConfig.waves ?? DEFAULT_WAVES);
     this.wave            = 0;
     this.score              = data.campaignScore ?? 0;
     this._scoreAtLevelStart = this.score;
@@ -134,7 +147,7 @@ export default class LevelScene extends Phaser.Scene {
     // spawnEnemy). `this.waypoints` stays the PRIMARY path — editor, debug, and
     // Barracks rally math run on it.
     this.difficulty = data.difficulty ?? 'easy';
-    this.paths      = this.levelConfig.paths;
+    this.paths      = this._playingConfig.paths;
     this.waypoints  = this.paths[0];
     this._activePathCount = activePathCount(this.difficulty, this.paths.length);
 
@@ -164,8 +177,7 @@ export default class LevelScene extends Phaser.Scene {
     this.startWaveBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2, '▶  Start Wave 1', 'gold', 900, () => this._startWave());
 
     this.retryLevelBtn = this._makeButton(CANVAS_W / 2, CANVAS_H / 2 + 96, '↺  Retry Level', 'gold', 1300, () => {
-      const levelId = LEVELS.indexOf(this.levelConfig);
-      this.scene.start('LevelScene', { levelId, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart });
+      this.scene.start('LevelScene', { levelId: this._playingLevel, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart });
     });
     this.retryLevelBtn.setVisible(false);
 
@@ -204,6 +216,9 @@ export default class LevelScene extends Phaser.Scene {
     this._lastClickY    = 0;
 
     this.input.on('pointermove', (p) => {
+      // Rally-placement mode: live-preview the clamped anchor + formation.
+      if (this._rallyMode) { this._drawRallyPreview(p.x, p.y); return; }
+
       if (this.editorMode && this._drag && p.isDown) {
         this._dragMoved = true;
         const pt = { x: Math.round(p.x), y: Math.round(p.y) };
@@ -211,7 +226,7 @@ export default class LevelScene extends Phaser.Scene {
           this.paths[this._drag.pathIdx][this._drag.idx] = pt;
           this._setStatusBar(`Path ${this._drag.pathIdx} · waypoint ${this._drag.idx}: ${pt.x}, ${pt.y}`, 'neutral');
         } else {
-          this.levelConfig.placementZones[this._drag.zoneIdx][this._drag.vertIdx] = pt;
+          this._playingConfig.placementZones[this._drag.zoneIdx][this._drag.vertIdx] = pt;
           this._setStatusBar(`Zone ${this._drag.zoneIdx} vertex ${this._drag.vertIdx}: ${pt.x}, ${pt.y}`, 'neutral');
         }
         this._redrawDebug();
@@ -240,6 +255,12 @@ export default class LevelScene extends Phaser.Scene {
     });
 
     this.input.on('pointerdown', (p) => {
+      // Rally-placement mode: a click confirms the new anchor (right-click cancels).
+      if (this._rallyMode) {
+        if (p.rightButtonDown?.()) this._exitRallyMode();
+        else this._confirmRallyPoint(p.x, p.y);
+        return;
+      }
       if (this.editorMode) {
         this._editorPointerDown(p);
       } else {
@@ -267,6 +288,7 @@ export default class LevelScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-S', () => this._startWave());
     this.input.keyboard.on('keydown-R', () => this._restartOrExit());
     this.input.keyboard.on('keydown-P', () => this._togglePause());
+    this.input.keyboard.on('keydown-ESC', () => { if (this._rallyMode) this._exitRallyMode(); });
     if (DEV_MODE) {
       this._registerDevKeys();
       this._registerEditorKeys();
@@ -353,7 +375,7 @@ export default class LevelScene extends Phaser.Scene {
         }
       } else {
         const { zoneIdx, vertIdx } = this._drag;
-        const zone = this.levelConfig.placementZones[zoneIdx];
+        const zone = this._playingConfig.placementZones[zoneIdx];
         if (zone.length > 3) {
           zone.splice(vertIdx, 1);
           this._drag = null;
@@ -407,13 +429,12 @@ export default class LevelScene extends Phaser.Scene {
 
   _applyWaveConfig(waveIdx) {
     const wc = this._waveConfig?.[waveIdx];
-    this.enemiesPerWave = wc?.enemiesPerWave ?? this.levelConfig.enemiesPerWave ?? 8;
+    this.enemiesPerWave = wc?.enemiesPerWave ?? this._playingConfig.enemiesPerWave ?? 8;
     this.spawnPool = this._buildSpawnPool(waveIdx);
   }
 
   _buildSpawnPool(waveIdx) {
-    const campaignLevel  = CAMPAIGN_LEVELS[this._playingLevel];
-    const progression    = campaignLevel?.waveProgression ?? {};
+    const progression    = this._playingCampaign?.waveProgression ?? {};
     const totalWaves     = this.totalWaves;
     const t = totalWaves > 1 ? waveIdx / (totalWaves - 1) : 0;
 
@@ -436,8 +457,10 @@ export default class LevelScene extends Phaser.Scene {
     const wonFrontier = this._playingLevel === this._frontierLevel && this._frontierLevel < lastLevel;
     let unlocks = [];
     if (wonFrontier) {
-      const curr = getUnlocks(this._frontierLevel);
-      const next = getUnlocks(this._frontierLevel + 1);
+      // Under the wonFrontier guard _playingLevel === _frontierLevel, so the
+      // playing/next getters refer to the frontier and the level just unlocked.
+      const curr = this._frontierUnlocks;
+      const next = this._nextUnlocks;
       const newTowers  = [...next.towers ].filter(k => !curr.towers.has(k));
       const newEnemies = [...next.enemies].filter(k => !curr.enemies.has(k));
       unlocks = [
@@ -585,7 +608,7 @@ export default class LevelScene extends Phaser.Scene {
     this._overlayFocusGroup?.destroy();
     this._overlayFocusGroup = null;
     const overlayBtns = [];
-    if (showRetryBtn) overlayBtns.push({ btn: this.retryLevelBtn, action: () => { const levelId = LEVELS.indexOf(this.levelConfig); this.scene.start('LevelScene', { levelId, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart }); } });
+    if (showRetryBtn) overlayBtns.push({ btn: this.retryLevelBtn, action: () => { this.scene.start('LevelScene', { levelId: this._playingLevel, currentLevel: this._frontierLevel, campaignScore: this._scoreAtLevelStart }); } });
     if (showBackBtn)  overlayBtns.push({ btn: this.backToMapBtn,  action: () => this._goToMap() });
     if (overlayBtns.length > 0) this._overlayFocusGroup = new FocusGroup(this, overlayBtns);
   }
@@ -803,7 +826,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _buildAnims() {
-    const nextUnlocks = getUnlocks(this._playingLevel + 1);
+    const nextUnlocks = this._nextUnlocks;
     for (const enemy of Object.values(ENEMY_TYPES)) {
       if (!this._unlockedEnemies.has(enemy.key) && !nextUnlocks.enemies.has(enemy.key)) continue;
       this._buildUnitAnims(enemy);
@@ -857,7 +880,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _drawPlacementZones() {
-    const zones = this.levelConfig.placementZones;
+    const zones = this._playingConfig.placementZones;
     for (let zi = 0; zi < zones.length; zi++) {
       const zone = zones[zi];
       this.debugGraphics.fillStyle(0x00ff88, 0.15);
@@ -882,7 +905,7 @@ export default class LevelScene extends Phaser.Scene {
     const allTypes  = Object.values(TURRET_TYPES).filter(t => this._unlockedTowers.has(t.key));
     const minSpace  = Math.min(...allTypes.map(t => t.minSpacing));
     const minCost   = Math.min(...allTypes.map(t => t.cost));
-    const inZone    = this.levelConfig.placementZones.some(z => this._pointInPolygon(x, y, z));
+    const inZone    = this._playingConfig.placementZones.some(z => this._pointInPolygon(x, y, z));
     const tooClose  = this.waypoints.some(wp => Math.hypot(x - wp.x, y - wp.y) < WP_HIT_R)
                     || this.turrets.some(t  => Math.hypot(x - t.cx, y - t.cy) < minSpace);
     const canAfford = this.gold >= minCost;
@@ -951,7 +974,7 @@ export default class LevelScene extends Phaser.Scene {
       }
     }
 
-    const zones = this.levelConfig.placementZones;
+    const zones = this._playingConfig.placementZones;
     const pt    = { x: Math.round(p.x), y: Math.round(p.y) };
 
     // Hit-test waypoints across every path
@@ -1045,7 +1068,7 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _logZones() {
-    const lines = this.levelConfig.placementZones.map((zone, zi) => {
+    const lines = this._playingConfig.placementZones.map((zone, zi) => {
       const pts = zone.map(({ x, y }) =>
         `    bgPt(${Math.round(x / scaleX)}, ${Math.round(y / scaleY)})`
       ).join(',\n');
@@ -1241,10 +1264,13 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _openSellPopup(turret, px, py) {
-    const def    = TURRET_TYPES[turret.type];
-    const refund = sellRefund(turret.totalSpent);
-    const up     = nextUpgrade(def, turret.level);   // null if maxed / no upgrades
-    const cardW  = 150, cardH = up ? 168 : 130, pad = 10;
+    const def        = TURRET_TYPES[turret.type];
+    const refund     = sellRefund(turret.totalSpent);
+    const up         = nextUpgrade(def, turret.level);   // null if maxed / no upgrades
+    const isBarracks = turret.bulletType === 'none';
+    // Barracks gets an extra "Set Rally" button row, so the card is a little taller.
+    const cardW = 150, pad = 10;
+    const cardH = (up ? 168 : 130) + (isBarracks ? 38 : 0);
 
     const ox = Math.min(Math.max(px - cardW / 2, 4), CANVAS_W - cardW - 4);
     const oy = Math.max(py - cardH - 12, 4);
@@ -1286,6 +1312,16 @@ export default class LevelScene extends Phaser.Scene {
       fontSize: '11px', fontFamily: 'Cinzel', color: '#f0c040',
     }).setOrigin(0.5, 0).setDepth(1002);
     destroyables.push(refundText);
+
+    // Barracks-only: enter rally-placement mode to reposition the defender guard spot.
+    if (isBarracks) {
+      const rallyBtn = this._makeButton(ox + cardW / 2, oy + cardH - 56, 'Set Rally Point', 'gold', 1002, () => {
+        this._closeTowerPopup();
+        this._enterRallyMode(turret);
+      }, { shadow: false, fontSize: '12px' });
+      destroyables.push(rallyBtn);
+      focusItems.push({ btn: rallyBtn, action: () => { this._closeTowerPopup(); this._enterRallyMode(turret); } });
+    }
 
     const sellBtn = this._makeButton(ox + cardW / 2, oy + cardH - 20, 'Sell Tower', 'dark', 1002, () => {
       this._closeTowerPopup();
@@ -1352,28 +1388,111 @@ export default class LevelScene extends Phaser.Scene {
     tower.respawnDelay  = def.respawnDelay;
     tower.defenders     = [];           // live Defender objects owned by this tower
     tower.respawnTimers = [];           // per-empty-slot countdown (ms)
+    tower.rallyStagger  = def.rallyStagger;
 
-    // Anchor the rally on the closest point of the path, then stagger the Defenders
-    // up-/down-path so they form a multi-deep block at the choke.
-    const anchor = closestPointOnPath({ x: tower.cx, y: tower.cy }, this.waypoints);
-    const points = [];
-    for (let i = 0; i < def.defenderCount; i++) {
-      const sign = i % 2 === 0 ? -1 : 1;
-      const mag  = def.rallyStagger * (Math.floor(i / 2) + 1);
-      points.push(
-        anchor ? pointAlongPath(this.waypoints, anchor.segIdx, anchor.t, sign * mag)
-               : { x: tower.cx, y: tower.cy }
-      );
-    }
-    // Order slots front-to-back along the enemy travel direction (smallest path
-    // progress first), so slot 0 is the front defender that meets enemies first.
-    points.sort((a, b) => pathProgress(this.waypoints, a) - pathProgress(this.waypoints, b));
-    tower.rallyPoints = points;
+    // Default rally anchor: the closest point on the NEAREST path to the Barracks
+    // (multi-path levels — a Barracks at an intersection snaps to whichever route it
+    // actually sits on). The player can later drag this anywhere in range.
+    const near = nearestPath({ x: tower.cx, y: tower.cy }, this.paths);
+    tower.rallyAnchor = near ? { x: near.point.x, y: near.point.y } : { x: tower.cx, y: tower.cy };
+    tower.rallyPoints = this._computeRallyPoints(tower, tower.rallyAnchor);
 
     for (let i = 0; i < def.defenderCount; i++) {
       // Initial garrison appears at the rally point (no march-out during build phase).
       this.spawnDefender(tower, i, false);
     }
+  }
+
+  // Build a Barracks' per-slot rally points: defenders spread EVENLY around the rally
+  // anchor in an isometric ring (squashed 2:1 to match the ground plane), each clamped
+  // to the tower's range ellipse so they stay able to engage.
+  //
+  // No path/direction math here — "which defender reacts first" is decided at runtime
+  // by proximity to the actual incoming enemy (_updateDefenders), so this formation is
+  // correct for any number of paths or directions, including junctions/convergences.
+  _computeRallyPoints(tower, anchor) {
+    const count  = tower.defenderCount;
+    const ringR  = tower.rallyStagger ?? 24;   // ring radius around the anchor
+    const points = [];
+    for (let i = 0; i < count; i++) {
+      // Single defender sits on the anchor; otherwise spread evenly by angle.
+      const ang = (i / count) * Math.PI * 2 - Math.PI / 2;   // start at the top
+      const pt  = count === 1
+        ? { x: anchor.x, y: anchor.y }
+        : { x: anchor.x + Math.cos(ang) * ringR, y: anchor.y + Math.sin(ang) * ringR * 0.5 };
+      points.push(clampToEllipse(tower.cx, tower.cy, tower.range, pt.x, pt.y));
+    }
+    return points;
+  }
+
+  // ─── Rally-point placement mode ────────────────────────────────────────────
+
+  _enterRallyMode(tower) {
+    this._rallyMode = { tower };
+    this._setStatusBar('Click to set the rally point · Esc / right-click to cancel', 'valid');
+  }
+
+  _exitRallyMode() {
+    this._rallyMode = null;
+    this.previewGraphics.clear();
+    this._setStatusBar('');
+  }
+
+  // Live preview while choosing a rally point: the tower's range ellipse, the clamped
+  // anchor, and where each defender would stand.
+  _drawRallyPreview(x, y) {
+    const tower  = this._rallyMode.tower;
+    const anchor = clampToEllipse(tower.cx, tower.cy, tower.range, x, y);
+    const invalid = this._rallyAnchorInZone(anchor);   // in a placement zone → not allowed
+    const accent  = invalid ? 0xff4444 : 0xffd040;
+    const g = this.previewGraphics;
+    g.clear();
+
+    // Range ellipse (the area the anchor is clamped within)
+    g.lineStyle(1, accent, 0.5);
+    g.strokeEllipse(tower.cx, tower.cy, tower.range * 2, tower.range, 64);
+
+    // Preview the resulting formation — only when the spot is valid.
+    if (!invalid) {
+      const points = this._computeRallyPoints(tower, anchor);
+      g.fillStyle(0x66ccff, 0.5);
+      for (const pt of points) g.fillEllipse(pt.x, pt.y, 16, 8);
+    }
+
+    // The anchor itself (a small flag-like marker; red when on a zone).
+    g.fillStyle(accent, 0.95);
+    g.fillEllipse(anchor.x, anchor.y, 12, 6);
+    g.lineStyle(2, accent, 1);
+    g.lineBetween(anchor.x, anchor.y, anchor.x, anchor.y - 16);
+  }
+
+  // A rally anchor is invalid if it sits inside any placement zone — those tiles are
+  // reserved for towers, so defenders mustn't stand guard there.
+  _rallyAnchorInZone(anchor) {
+    return this._playingConfig.placementZones.some(z => this._pointInPolygon(anchor.x, anchor.y, z));
+  }
+
+  // Commit a new rally anchor (clamped to range), recompute the formation, and send
+  // every non-fighting defender to its new spot immediately. ENGAGED defenders finish
+  // their current fight and adopt the new spot when they next return. A click inside a
+  // placement zone is rejected (the anchor stays where it was).
+  _confirmRallyPoint(x, y) {
+    const tower  = this._rallyMode.tower;
+    const anchor = clampToEllipse(tower.cx, tower.cy, tower.range, x, y);
+    if (this._rallyAnchorInZone(anchor)) {
+      this._setStatusBar('Rally point can’t be on a tower placement zone', 'invalid');
+      return;   // stay in rally mode; let the player pick again
+    }
+    tower.rallyAnchor = anchor;
+    tower.rallyPoints = this._computeRallyPoints(tower, tower.rallyAnchor);
+    for (const def of tower.defenders) {
+      if (def.dying || def.state === 'ENGAGED') continue;
+      this._releaseTarget(def);
+      def.target = null;
+      def.state = 'RETURNING';
+    }
+    this._exitRallyMode();
+    this._setStatusBar('Rally point set', 'valid');
   }
 
   _sellTower(turret) {
@@ -1428,6 +1547,11 @@ export default class LevelScene extends Phaser.Scene {
   // Replace a Barracks' live Defenders in place with its current-level unit (e.g.
   // footmen → wardens on L2), preserving each one's slot and position.
   _upgradeBarracksDefenders(turret) {
+    // An upgrade may change range — re-clamp the anchor and recompute rally points
+    // so defenders stay in range.
+    turret.rallyAnchor = clampToEllipse(turret.cx, turret.cy, turret.range, turret.rallyAnchor.x, turret.rallyAnchor.y);
+    turret.rallyPoints = this._computeRallyPoints(turret, turret.rallyAnchor);
+
     const live = turret.defenders.filter(d => !d.dying);
     for (const old of live) {
       this._releaseTarget(old);
@@ -1446,7 +1570,7 @@ export default class LevelScene extends Phaser.Scene {
   // ─── Spawning ─────────────────────────────────────────────────────────────
 
   _nextSpawnDelay() {
-    const { min, max } = this.levelConfig.spawnDelay;
+    const { min, max } = this._playingConfig.spawnDelay;
     return min + Math.random() * (max - min);
   }
 
@@ -1610,10 +1734,16 @@ export default class LevelScene extends Phaser.Scene {
   _updateDefenders(dt) {
     const deltaMs = dt * 1000;
 
-    // Evaluate front defenders (lower slot) first so they claim an incoming enemy
-    // before the rear ones scan — slot order is front-to-back per _initBarracks.
-    // (Respawns append to this.defenders, so don't rely on raw array order.)
-    const ordered = [...this.defenders].sort((a, b) => a.slot - b.slot);
+    // Evaluate defenders nearest to a threat first, so the best-placed one claims an
+    // incoming enemy before the others scan. With the ring formation there is no fixed
+    // "front" — who reacts first is decided here, at runtime, by proximity to the
+    // closest enemy (path-direction- and junction-agnostic). Defenders with no enemy
+    // in range sort last (Infinity).
+    const threatDist = (def) => {
+      const e = nearestEnemyInRange(def, this.enemies, def.tower.range, { skipBlocked: true });
+      return e ? (e.x - def.x) ** 2 + (e.y - def.y) ** 2 : Infinity;
+    };
+    const ordered = [...this.defenders].sort((a, b) => threatDist(a) - threatDist(b));
     for (const def of ordered) {
       if (def.dying) continue;
       const d = def.unit;   // this instance's unit type (footman or warden)

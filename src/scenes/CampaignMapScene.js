@@ -1,5 +1,5 @@
 import { CANVAS_W, CANVAS_H } from '../constants.js';
-import { CAMPAIGN_LEVELS } from '../data/levels.js';
+import { CAMPAIGN_LEVELS, LEVELS } from '../data/levels.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
 
@@ -71,10 +71,12 @@ export default class CampaignMapScene extends Phaser.Scene {
     // single campaign-wide setting.)
     // Difficulty options are data-driven so adding Veteran (or more) is just an extra
     // entry here — layout, drawing and hit-testing all derive from this list.
+    // `minPaths` gates an option: it's disabled on levels with fewer paths (e.g.
+    // Medium needs a second route to do anything, so it's greyed on single-path levels).
     this._selectedDifficulty = 'easy';
     this._diffOptions = [
-      { key: 'easy',   label: 'Easy'   },
-      { key: 'medium', label: 'Medium' },
+      { key: 'easy',   label: 'Easy',   minPaths: 1 },
+      { key: 'medium', label: 'Medium', minPaths: 2 },
     ];
     this._diffSegments = [];   // { key, x, y, w, h } per segment, set in _openPopup
     this._popupDiffLabel = this.add.text(0, 0, 'Difficulty', {
@@ -262,17 +264,27 @@ export default class CampaignMapScene extends Phaser.Scene {
     const diffLblY = py + titleH + descTop + descH + descBot;
     this._popupDiffLabel.setPosition(px + PW / 2, diffLblY).setVisible(true);
 
+    // Disable options that need more paths than this level defines (e.g. Medium on a
+    // single-path level). Index-aligned with CAMPAIGN_LEVELS.
+    const pathCount = LEVELS[levelId]?.paths?.length ?? 1;
+
     // N evenly-sized segments, centered on the card (works for 2, 3, … options).
     const n = this._diffOptions.length;
     const segW = 90, segY = diffLblY + diffLblH;
     const segLeft = px + PW / 2 - (segW * n) / 2;
     this._diffSegments = this._diffOptions.map((opt, i) => ({
       key: opt.key, x: segLeft + i * segW, y: segY, w: segW, h: segH,
+      disabled: pathCount < (opt.minPaths ?? 1),
     }));
     this._diffTexts.forEach((t, i) => {
       t.setPosition(segLeft + i * segW + segW / 2, segY + segH / 2).setVisible(true);
     });
-    this._setDifficulty(this._selectedDifficulty);   // apply selected-segment colour
+
+    // If the remembered choice isn't available here, fall back to the first enabled one.
+    if (this._diffSegments.find(s => s.key === this._selectedDifficulty)?.disabled) {
+      this._selectedDifficulty = this._diffSegments.find(s => !s.disabled)?.key ?? 'easy';
+    }
+    this._refreshDiffColors();
 
     this._popupBeginBtn.setPosition(px + PW / 2, segY + segH + diffGap + btnH / 2).setVisible(true);
 
@@ -285,10 +297,18 @@ export default class CampaignMapScene extends Phaser.Scene {
   }
 
   _setDifficulty(diff) {
+    // Ignore selection of a disabled option (e.g. Medium on a single-path level).
+    if (this._diffSegments.find(s => s.key === diff)?.disabled) return;
     this._selectedDifficulty = diff;
-    // Selected segment label uses a brighter colour; the rest are muted.
+    this._refreshDiffColors();
+  }
+
+  // Selected = dark, disabled = faint, other = muted.
+  _refreshDiffColors() {
     this._diffTexts.forEach((t, i) => {
-      t.setColor(this._diffOptions[i].key === diff ? '#3a2408' : '#8a7048');
+      const key = this._diffOptions[i].key;
+      const disabled = this._diffSegments.find(s => s.key === key)?.disabled;
+      t.setColor(disabled ? '#b0a080' : (key === this._selectedDifficulty ? '#3a2408' : '#8a7048'));
     });
   }
 
@@ -515,7 +535,11 @@ export default class CampaignMapScene extends Phaser.Scene {
       const r = 6;
 
       for (const s of segs) {
-        if (s.key === this._selectedDifficulty) {
+        if (s.disabled) {
+          // Greyed/hatched fill so it reads as unavailable.
+          g.fillStyle(0xc8bc98, 1);
+          g.fillRect(s.x, s.y, s.w, s.h);
+        } else if (s.key === this._selectedDifficulty) {
           g.fillStyle(0xd4a010, 1);
           g.fillRect(s.x, s.y, s.w, s.h);
         }
