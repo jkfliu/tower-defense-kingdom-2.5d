@@ -1,4 +1,4 @@
-import { CANVAS_W, CANVAS_H, scaleX, scaleY, DEFAULT_LIVES, DEFAULT_WAVES, DEV_MODE } from '../constants.js';
+import { CANVAS_W, CANVAS_H, HUD_TOP, scaleX, scaleY, DEFAULT_LIVES, DEFAULT_WAVES, DEV_MODE } from '../constants.js';
 import { LEVELS, CAMPAIGN_LEVELS, getUnlocks } from '../data/levels.js';
 import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
@@ -13,6 +13,7 @@ import { activePathCount, pickPathIndex } from '../logic/difficulty.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
 import { titleCaseKey } from '../utils/text.js';
+import { HudOverlay } from '../utils/hud.js';
 import { soundManager } from '../utils/sound.js';
 
 const TOWER_SELL_HIT_R  = 28;
@@ -117,13 +118,22 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   create(data = {}) {
-    document.getElementById('hud-level').style.display = '';
-    document.getElementById('hud-main').style.display  = '';
-    document.getElementById('info').style.display      = '';
-    document.getElementById('statusbar').style.display = '';
+    // Render the play field into the middle strip (screen y = HUD_TOP .. HUD_TOP+CANVAS_H)
+    // via the camera viewport, leaving the top/bottom bands for the HUD. A viewport
+    // (unlike scroll) offsets BOTH rendering and pointer input, so game coords stay
+    // 0..CANVAS_H and clicks line up. HUD objects use a scrollFactor-0 overlay.
+    this.cameras.main.setViewport(0, HUD_TOP, CANVAS_W, CANVAS_H);
+    this.hud = new HudOverlay(this, {
+      start:   () => this._startWave(),
+      pause:   () => this._togglePause(),
+      restart: () => this._restartOrExit(),
+      ff:      () => this._fastForward(),
+      debug:   () => this._toggleDebug(),
+      editor:  () => this._toggleEditor(),
+    });
 
     this._frontierLevel = data.currentLevel ?? this._playingLevel;
-    document.getElementById('hud-level').textContent = `Level ${this._playingLevel + 1} — ${this._playingCampaign?.name ?? ''}`;
+    this.hud.setLevel(`Level ${this._playingLevel + 1} — ${this._playingCampaign?.name ?? ''}`);
 
     this._buildAnims();
 
@@ -239,7 +249,18 @@ export default class LevelScene extends Phaser.Scene {
     this._lastClickX    = 0;
     this._lastClickY    = 0;
 
-    this.input.on('pointermove', (p) => {
+    // The play-field camera is offset by HUD_TOP via its viewport, so raw pointer
+    // coords (canvas space) are HUD_TOP too high in world terms. Phaser maps the
+    // viewport offset into worldX/worldY — use those so all downstream input math
+    // (placement, editor, rally) lines up with the cursor.
+    this._worldPointer = (p) => ({
+      x: p.worldX, y: p.worldY,
+      isDown: p.isDown,
+      rightButtonDown: () => p.rightButtonDown?.(),
+    });
+
+    this.input.on('pointermove', (rawP) => {
+      const p = this._worldPointer(rawP);
       // Rally-placement mode: live-preview the clamped anchor + formation.
       if (this._rallyMode) { this._drawRallyPreview(p.x, p.y); return; }
 
@@ -263,6 +284,10 @@ export default class LevelScene extends Phaser.Scene {
       // this keeps it cleared for every move while the cursor stays on the button.
       if (this._overButton) { this.previewGraphics.clear(); return; }
 
+      // Over a preview card (wave enemies / new unlocks): same deal — suppress the
+      // placement ghost so reading the card doesn't look like placing a tower.
+      if (this._overPreviewCard(p.x, p.y)) { this.previewGraphics.clear(); return; }
+
       if (!this._drag) {
         if (this._towerPopup) this._drawPlacementPreview(this._towerPopup.x, this._towerPopup.y);
         else this._drawPlacementPreview(p.x, p.y);
@@ -278,7 +303,8 @@ export default class LevelScene extends Phaser.Scene {
       this.game.canvas.removeEventListener('mouseleave', this._onMouseLeave);
     });
 
-    this.input.on('pointerdown', (p) => {
+    this.input.on('pointerdown', (rawP) => {
+      const p = this._worldPointer(rawP);
       // Rally-placement mode: a click confirms the new anchor (right-click cancels).
       if (this._rallyMode) {
         if (p.rightButtonDown?.()) this._exitRallyMode();
@@ -317,27 +343,6 @@ export default class LevelScene extends Phaser.Scene {
       this._registerDevKeys();
       this._registerEditorKeys();
     }
-    this._registerInfoClicks();
-  }
-
-  // Bottom-bar hints double as clickable buttons for players without a keyboard.
-  // Each fires the same action as its shortcut key.
-  _registerInfoClicks() {
-    const bind = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
-    this._infoHandlers = [
-      ['info-start',   () => this._startWave()],
-      ['info-pause',   () => this._togglePause()],
-      ['info-restart', () => this._restartOrExit()],
-    ];
-    // Fast Forward only exists in dev mode (the F key + #info-dev hint).
-    if (DEV_MODE) this._infoHandlers.push(['info-ff', () => this._fastForward()]);
-    for (const [id, fn] of this._infoHandlers) bind(id, fn);
-    // Detach on scene shutdown so listeners don't stack across level restarts.
-    this.events.once('shutdown', () => {
-      for (const [id, fn] of this._infoHandlers) {
-        document.getElementById(id)?.removeEventListener('click', fn);
-      }
-    });
   }
 
   _togglePause() {
@@ -363,30 +368,34 @@ export default class LevelScene extends Phaser.Scene {
 
   _registerDevKeys() {
     this.input.keyboard.on('keydown-F', () => this._fastForward());
-    this.input.keyboard.on('keydown-D', () => {
-      this.debug = !this.debug;
-      this.debugGraphics.setVisible(this.debug || this.editorMode);
-      this._redrawDebug();
-      this._setStatusBar(this.debug ? 'Debug Mode On' : 'Debug Mode Off', 'valid');
-      document.getElementById('info-debug').classList.toggle('info-active', this.debug);
-    });
+    this.input.keyboard.on('keydown-D', () => this._toggleDebug());
+  }
+
+  _toggleDebug() {
+    this.debug = !this.debug;
+    this.debugGraphics.setVisible(this.debug || this.editorMode);
+    this._redrawDebug();
+    this._setStatusBar(this.debug ? 'Debug Mode On' : 'Debug Mode Off', 'valid');
+    this.hud?.setHintActive('debug', this.debug);
+  }
+
+  _toggleEditor() {
+    this.editorMode = !this.editorMode;
+    this.editorText.setVisible(this.editorMode);
+    this.debugGraphics.setVisible(this.debug || this.editorMode);
+    this.hud?.setHintActive('editor', this.editorMode);
+    if (this.editorMode) {
+      console.log('%c EDITOR MODE ON — open DevTools with F12 (Win) or Cmd+Option+I (Mac) to see waypoint/zone output', 'background:#1a2a1a;color:#00ff88;padding:4px 8px;font-weight:bold;');
+      this._setStatusBar('Editor Mode On — open DevTools (F12 / Cmd+Option+I) to see output', 'valid');
+    } else {
+      this._setStatusBar('Editor Mode Off', 'valid');
+    }
+    this._drag = null;
+    this._redrawDebug();
   }
 
   _registerEditorKeys() {
-    this.input.keyboard.on('keydown-E', () => {
-      this.editorMode = !this.editorMode;
-      this.editorText.setVisible(this.editorMode);
-      this.debugGraphics.setVisible(this.debug || this.editorMode);
-      document.getElementById('info-editor').classList.toggle('info-active', this.editorMode);
-      if (this.editorMode) {
-        console.log('%c EDITOR MODE ON — open DevTools with F12 (Win) or Cmd+Option+I (Mac) to see waypoint/zone output', 'background:#1a2a1a;color:#00ff88;padding:4px 8px;font-weight:bold;');
-        this._setStatusBar('Editor Mode On — open DevTools (F12 / Cmd+Option+I) to see output', 'valid');
-      } else {
-        this._setStatusBar('Editor Mode Off', 'valid');
-      }
-      this._drag = null;
-      this._redrawDebug();
-    });
+    this.input.keyboard.on('keydown-E', () => this._toggleEditor());
     const onDelete = () => {
       if (!this.editorMode || !this._drag) return;
       if (this._drag.type === 'path') {
@@ -656,16 +665,11 @@ export default class LevelScene extends Phaser.Scene {
 
   _updateHUD() {
     const waveStr = this.wave === 0 ? `— / ${this.totalWaves}` : `${this.wave} / ${this.totalWaves}`;
-    document.getElementById('hud-wave').textContent  = waveStr;
-    document.getElementById('hud-lives').textContent = this.lives;
-    document.getElementById('hud-score').textContent = this.score;
-    document.getElementById('hud-gold').textContent  = this.gold;
+    this.hud?.setStats({ wave: waveStr, lives: this.lives, score: this.score, gold: this.gold });
   }
 
   _setStatusBar(msg, style = 'neutral') {
-    const el = document.getElementById('statusbar');
-    el.textContent = msg;
-    el.className   = style;
+    this.hud?.setStatus(msg, style);
   }
 
   // ─── Enemy preview ───────────────────────────────────────────────────────
@@ -684,6 +688,7 @@ export default class LevelScene extends Phaser.Scene {
 
     const titleH  = 20;
     const totalH  = cardH + titleH;
+    this._enemyPreviewRect = { x: cx, y: cy, w: cardW, h: totalH };
 
     const gfx = this.add.graphics().setDepth(901);
     gfx.fillStyle(0x0d1117, 0.85);
@@ -739,6 +744,7 @@ export default class LevelScene extends Phaser.Scene {
     if (!this._enemyPreview) return;
     for (const obj of this._enemyPreview) obj.destroy();
     this._enemyPreview = null;
+    this._enemyPreviewRect = null;
   }
 
   _buildUnlockPreview(belowY) {
@@ -760,6 +766,7 @@ export default class LevelScene extends Phaser.Scene {
     const cardW = 160;
     const cardH = titleH + pad + items.length * rowH + pad;
     const cx = 8, cy = belowY + 8;
+    this._unlockPreviewRect = { x: cx, y: cy, w: cardW, h: cardH };
     const objects = [];
 
     const gfx = this.add.graphics().setDepth(901);
@@ -826,6 +833,13 @@ export default class LevelScene extends Phaser.Scene {
     if (!this._unlockPreview) return;
     for (const obj of this._unlockPreview) obj.destroy();
     this._unlockPreview = null;
+    this._unlockPreviewRect = null;
+  }
+
+  // True if (x, y) — play-field/world coords — is over either visible preview card.
+  _overPreviewCard(x, y) {
+    const hit = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    return hit(this._enemyPreviewRect) || hit(this._unlockPreviewRect);
   }
 
   // ─── Animations ──────────────────────────────────────────────────────────
@@ -1188,6 +1202,8 @@ export default class LevelScene extends Phaser.Scene {
     if (this.phase === 'gameover' || this.phase === 'victory') return;
     // Over a HUD button — let the button handle its own click, don't place a tower.
     if (this._overButton) return;
+    // Over a preview card — its close button handles clicks; don't place a tower under it.
+    if (this._overPreviewCard(pointer.x, pointer.y)) return;
 
     // Close existing popup if open
     if (this._towerPopup) {

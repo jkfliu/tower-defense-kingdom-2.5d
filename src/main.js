@@ -1,4 +1,4 @@
-import { CANVAS_W, CANVAS_H, DEV_MODE } from './constants.js';
+import { GAME_W, GAME_H, DEV_MODE } from './constants.js';
 import CampaignMapScene from './scenes/CampaignMapScene.js';
 import LevelScene from './scenes/LevelScene.js';
 
@@ -8,12 +8,19 @@ const jumpLevel = Number.isFinite(devLevel) ? devLevel - 1 : null;
 
 const config = {
   type: Phaser.AUTO,
-  width: CANVAS_W,
-  height: CANVAS_H,
   parent: 'game-container',
   backgroundColor: '#1a1a2e',
   scene: [CampaignMapScene, LevelScene],
   antialias: true,
+  // Responsive: the fixed GAME_W×GAME_H design scales to fit the viewport,
+  // preserving aspect ratio (letterboxed). Pointer coords stay in design space, so
+  // input math is unaffected.
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: GAME_W,
+    height: GAME_H,
+  },
   callbacks: {
     postBoot(game) {
       if (jumpLevel !== null) {
@@ -25,7 +32,3 @@ const config = {
 };
 
 new Phaser.Game(config);
-
-if (DEV_MODE) {
-  document.getElementById('info-dev').style.display = 'inline';
-}
