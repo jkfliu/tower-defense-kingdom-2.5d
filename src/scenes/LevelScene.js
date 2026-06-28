@@ -1820,8 +1820,7 @@ export default class LevelScene extends Phaser.Scene {
         }
       }
 
-      def.sprite.setPosition(def.x, def.y);
-      def.sprite.setDepth(def.y);
+      this._placeSprite(def.sprite, def.x, def.y);
     }
   }
 
@@ -2245,8 +2244,7 @@ export default class LevelScene extends Phaser.Scene {
               }
             }
           }
-          e.sprite.setPosition(e.x, e.y);
-          e.sprite.setDepth(e.y);
+          this._placeSprite(e.sprite, e.x, e.y);
           continue;
         }
       }
@@ -2277,8 +2275,7 @@ export default class LevelScene extends Phaser.Scene {
               e.sprite.play(`${e.type}_idle`);
             }
           }
-          e.sprite.setPosition(e.x, e.y);
-          e.sprite.setDepth(e.y);
+          this._placeSprite(e.sprite, e.x, e.y);
           continue;
         }
         // No wounded allies in range — resume marching, ready to channel on demand.
@@ -2301,8 +2298,7 @@ export default class LevelScene extends Phaser.Scene {
             e.sprite.setFlipX(blocker.x < e.x);
             this._applyDefenderHit(blocker, def.meleeDamage ?? 10);
           }
-          e.sprite.setPosition(e.x, e.y);
-          e.sprite.setDepth(e.y);
+          this._placeSprite(e.sprite, e.x, e.y);
           continue;
         }
         // else: claimed but the Defender is still approaching — keep walking normally.
@@ -2335,8 +2331,7 @@ export default class LevelScene extends Phaser.Scene {
         }
       }
 
-      e.sprite.setPosition(e.x, e.y);
-      e.sprite.setDepth(e.y);
+      this._placeSprite(e.sprite, e.x, e.y);
     }
   }
 
@@ -2365,6 +2360,13 @@ export default class LevelScene extends Phaser.Scene {
 
 
   // ─── Entity rendering ─────────────────────────────────────────────────────
+
+  // Place a ground entity's sprite at (x, y), depth-sorted by y (the iso convention:
+  // lower-on-screen draws in front). Used for enemies and defenders each frame.
+  _placeSprite(sprite, x, y) {
+    sprite.setPosition(x, y);
+    sprite.setDepth(y);
+  }
 
   _drawEntities() {
     this.entityGraphics.clear();
