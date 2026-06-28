@@ -40,9 +40,12 @@ export default class CampaignMapScene extends Phaser.Scene {
     // Popup state
     this._popup = null; // { levelId } or null
 
-    // Two graphics layers: bg (depth 0, behind map image) and overlay (depth 2, above map image)
-    this._bgGfx  = this.add.graphics().setDepth(0);
-    this._gfx    = this.add.graphics().setDepth(2);
+    // Graphics layers: bg (depth 0, behind map image), overlay (depth 2, map content
+    // — nodes, paths, labels live at 10–15), and popup (depth 100, above everything
+    // so the dim + card always sit on top of node labels and the score bar).
+    this._bgGfx    = this.add.graphics().setDepth(0);
+    this._gfx      = this.add.graphics().setDepth(2);
+    this._popupGfx = this.add.graphics().setDepth(100);
     this._nodeTexts = []; // label Text objects, one per level node
 
     // Pre-create label texts (reused each frame)
@@ -54,15 +57,15 @@ export default class CampaignMapScene extends Phaser.Scene {
       this._nodeTexts.push(t);
     }
 
-    // Popup card texts
+    // Popup card texts — depth 101, just above the popup card layer (100).
     this._popupTitle = this.add.text(0, 0, '', {
       fontSize: '16px', fontFamily: 'Cinzel', color: '#3a2408',
-    }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
+    }).setOrigin(0.5, 0).setDepth(101).setVisible(false);
     this._popupDesc = this.add.text(0, 0, '', {
       fontSize: '14px', fontFamily: 'Cinzel', color: '#5a3c10',
       wordWrap: { width: 320 }, align: 'center',
-    }).setOrigin(0.5, 0).setDepth(20).setVisible(false);
-    this._popupBeginBtn = makeButton(this, 0, 0, 'Begin!', 'gold', 20, () => this._beginLevel(), { shadow: false });
+    }).setOrigin(0.5, 0).setDepth(101).setVisible(false);
+    this._popupBeginBtn = makeButton(this, 0, 0, 'Begin!', 'gold', 101, () => this._beginLevel(), { shadow: false });
     this._popupBeginBtn.setVisible(false);
     this._popupFocusGroup = null;
 
@@ -295,8 +298,10 @@ export default class CampaignMapScene extends Phaser.Scene {
 
     // Title bar (no background fill — title text floats over the map)
 
-    // Popup card
-    if (this._popup) this._drawPopup(g);
+    // Popup card — drawn on its own high-depth layer so it covers node labels and
+    // the score bar; cleared every frame whether or not a popup is open.
+    this._popupGfx.clear();
+    if (this._popup) this._drawPopup(this._popupGfx);
 
     // Position node label texts
     for (let i = 0; i < CAMPAIGN_LEVELS.length; i++) {

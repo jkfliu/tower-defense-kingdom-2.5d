@@ -211,6 +211,11 @@ export default class LevelScene extends Phaser.Scene {
         return;
       }
 
+      // Over a HUD button (e.g. Start Wave): suppress the placement ghost so hovering
+      // the button doesn't read as placing a tower. onHover already cleared it once;
+      // this keeps it cleared for every move while the cursor stays on the button.
+      if (this._overButton) { this.previewGraphics.clear(); return; }
+
       if (!this._drag) {
         if (this._towerPopup) this._drawPlacementPreview(this._towerPopup.x, this._towerPopup.y);
         else this._drawPlacementPreview(p.x, p.y);
@@ -1070,25 +1075,33 @@ export default class LevelScene extends Phaser.Scene {
     focusGroup.destroy();
     gfx.destroy();
     msg.destroy();
-    yesBtn._gfx.destroy(); yesBtn._txt.destroy();
-    noBtn._gfx.destroy();  noBtn._txt.destroy();
+    yesBtn._gfx.destroy(); yesBtn._txt.destroy(); yesBtn._hit.destroy();
+    noBtn._gfx.destroy();  noBtn._txt.destroy();  noBtn._hit.destroy();
     this._restartConfirm = null;
   }
 
   // ─── Button factory ───────────────────────────────────────────────────────
 
   _makeButton(bx0, by0, label, style, depth, onPress, opts = {}) {
-    return makeButton(this, bx0, by0, label, style, depth, onPress, {
+    const btn = makeButton(this, bx0, by0, label, style, depth, onPress, {
       ...opts,
       onHover: () => { this._overButton = true;  this.previewGraphics.clear(); this._setStatusBar(''); },
       onOut:   () => { this._overButton = false; },
     });
+    // Hiding a button out from under the cursor (e.g. Start Wave on click) means its
+    // pointerout never fires — clear the over-button guard so tower placement isn't
+    // left permanently blocked.
+    const baseSetVisible = btn.setVisible.bind(btn);
+    btn.setVisible = (v) => { if (!v) this._overButton = false; return baseSetVisible(v); };
+    return btn;
   }
 
   // ─── Tower placement ──────────────────────────────────────────────────────
 
   onTileClick(pointer) {
     if (this.phase === 'gameover' || this.phase === 'victory') return;
+    // Over a HUD button — let the button handle its own click, don't place a tower.
+    if (this._overButton) return;
 
     // Close existing popup if open
     if (this._towerPopup) {
@@ -1258,7 +1271,7 @@ export default class LevelScene extends Phaser.Scene {
     if (!this._towerPopup) return;
     this._towerPopup.focusGroup?.destroy();
     for (const obj of this._towerPopup.destroyables) {
-      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); }
+      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); obj._hit?.destroy(); }
       else obj?.destroy();
     }
     this._towerPopup = null;
