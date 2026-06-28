@@ -6,7 +6,7 @@ import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defende
 import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
   tickCooldown,
-  arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal, clampToEllipse, nearestPath,
+  arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal, clampToEllipse, nearestPath, arcPosition,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { activePathCount, pickPathIndex } from '../logic/difficulty.js';
@@ -28,6 +28,18 @@ const DEFENDER_IDLE_FRAME =
   DEFENDER_TYPE.animations.find(a => a.key === 'walk').row * DEFENDER_TYPE.sheetCols;
 const PLACEMENT_TILE_W  = 32;
 const PLACEMENT_TILE_H  = 18;
+
+// Bullet behaviour registry: maps bulletType → the scene method NAMES that spawn
+// (`fire`) and advance (`update`) it. Dispatch is a table lookup (`this[name](…)`),
+// so adding a bullet type is one entry here instead of editing two if/else chains.
+// `fire` is only needed for turret-launched types; `enemyArrow` is fired directly by
+// enemy logic.
+const BULLET_KINDS = {
+  arrow:      { fire: '_fireArrow', update: '_updateArrow' },
+  orb:        { fire: '_fireOrb',   update: '_updateOrb' },
+  bomb:       { fire: '_fireBomb',  update: '_updateBomb' },
+  enemyArrow: {                     update: '_updateEnemyArrow' },
+};
 
 export default class LevelScene extends Phaser.Scene {
   constructor() { super('LevelScene'); }
@@ -1954,15 +1966,13 @@ export default class LevelScene extends Phaser.Scene {
       return;
     }
 
+    const start = { x: b.startX, y: b.startY };
+    const end   = { x: b.endX,   y: b.endY };
     const tc    = Math.min(tRaw, 1);
-    const prevT = Math.max(0, tc - 0.01);
-    const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
-    const px = b.startX + (b.endX - b.startX) * tc;
-    const py = b.startY + (b.endY - b.startY) * tc + arcY(tc);
-    const qx = b.startX + (b.endX - b.startX) * prevT;
-    const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
-    b.sprite.setPosition(px, py);
-    b.sprite.setRotation(Math.atan2(py - qy, px - qx));
+    const p = arcPosition(start, end, b.arcHeight, tc);
+    const q = arcPosition(start, end, b.arcHeight, Math.max(0, tc - 0.01));
+    b.sprite.setPosition(p.x, p.y);
+    b.sprite.setRotation(Math.atan2(p.y - q.y, p.x - q.x));
   }
 
   _updateOrb(b, dt, i) {
@@ -2026,15 +2036,13 @@ export default class LevelScene extends Phaser.Scene {
       return;
     }
 
+    const start = { x: b.startX, y: b.startY };
+    const end   = { x: b.endX,   y: b.endY };
     const tc    = Math.min(tRaw, 1);
-    const prevT = Math.max(0, tc - 0.01);
-    const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
-    const px = b.startX + (b.endX - b.startX) * tc;
-    const py = b.startY + (b.endY - b.startY) * tc + arcY(tc);
-    const qx = b.startX + (b.endX - b.startX) * prevT;
-    const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
-    b.sprite.setPosition(px, py);
-    b.sprite.setRotation(Math.atan2(py - qy, px - qx));
+    const p = arcPosition(start, end, b.arcHeight, tc);
+    const q = arcPosition(start, end, b.arcHeight, Math.max(0, tc - 0.01));
+    b.sprite.setPosition(p.x, p.y);
+    b.sprite.setRotation(Math.atan2(p.y - q.y, p.x - q.x));
   }
 
   _fireBomb(t, nearest) {
@@ -2072,11 +2080,9 @@ export default class LevelScene extends Phaser.Scene {
       return;
     }
 
-    const tc   = Math.min(tRaw, 1);
-    const arcY = (t) => -b.arcHeight * 4 * t * (1 - t);
-    const px   = b.startX + (b.endX - b.startX) * tc;
-    const py   = b.startY + (b.endY - b.startY) * tc + arcY(tc);
-    b.sprite.setPosition(px, py);
+    const tc = Math.min(tRaw, 1);
+    const p  = arcPosition({ x: b.startX, y: b.startY }, { x: b.endX, y: b.endY }, b.arcHeight, tc);
+    b.sprite.setPosition(p.x, p.y);
     b.sprite.setRotation(b.elapsed * 5);
   }
 
@@ -2344,9 +2350,7 @@ export default class LevelScene extends Phaser.Scene {
       if (nearest) {
         t.fireCooldown = t.fireRate;
         t.aimAngle = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
-        if (t.bulletType === 'arrow')    this._fireArrow(t, nearest);
-        else if (t.bulletType === 'bomb') this._fireBomb(t, nearest);
-        else                              this._fireOrb(t, nearest);
+        this[BULLET_KINDS[t.bulletType].fire](t, nearest);
       }
     }
   }
@@ -2354,10 +2358,7 @@ export default class LevelScene extends Phaser.Scene {
   _updateBullets(dt) {
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
-      if (b.bulletType === 'arrow')         this._updateArrow(b, dt, i);
-      else if (b.bulletType === 'enemyArrow') this._updateEnemyArrow(b, dt, i);
-      else if (b.bulletType === 'bomb')      this._updateBomb(b, dt, i);
-      else                                   this._updateOrb(b, dt, i);
+      this[BULLET_KINDS[b.bulletType].update](b, dt, i);
     }
   }
 

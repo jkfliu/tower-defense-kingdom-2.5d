@@ -206,6 +206,17 @@ export function applyHeal(hp, healAmount, maxHp) {
   return Math.min(maxHp, hp + healAmount);
 }
 
+// Position along a parabolic lob from `start` to `end` at normalized time t∈[0,1]:
+// linear interpolation plus an upward (negative-y) arc that peaks at t=0.5 with
+// height `arcHeight`. Shared by tower arrows, dodgeable enemy arrows, and bombs.
+export function arcPosition(start, end, arcHeight, t) {
+  const arc = -arcHeight * 4 * t * (1 - t);   // 0 at the ends, -arcHeight at t=0.5
+  return {
+    x: start.x + (end.x - start.x) * t,
+    y: start.y + (end.y - start.y) * t + arc,
+  };
+}
+
 // Whether a dodgeable enemy arrow connects on arrival: the target must still be
 // alive and within the isometric hit ellipse (2:1) of where the arrow landed. A
 // target that died or walked away during the arrow's flight whiffs.
