@@ -1140,14 +1140,21 @@ export default class LevelScene extends Phaser.Scene {
     if (!this._restartConfirm) return;
     const { gfx, msg, yesBtn, noBtn, focusGroup } = this._restartConfirm;
     focusGroup.destroy();
-    gfx.destroy();
-    msg.destroy();
-    yesBtn._gfx.destroy(); yesBtn._txt.destroy(); yesBtn._hit.destroy();
-    noBtn._gfx.destroy();  noBtn._txt.destroy();  noBtn._hit.destroy();
+    this._destroyPanelObjects([gfx, msg, yesBtn, noBtn]);
     this._restartConfirm = null;
   }
 
   // ─── Button factory ───────────────────────────────────────────────────────
+
+  // Destroy a mixed list of panel objects: makeButton returns (with _gfx/_txt/_hit)
+  // need all three torn down (the _hit Zone otherwise leaks and keeps capturing
+  // input); plain GameObjects just .destroy(). Shared by every popup teardown.
+  _destroyPanelObjects(objects) {
+    for (const obj of objects) {
+      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); obj._hit?.destroy(); }
+      else obj?.destroy();
+    }
+  }
 
   _makeButton(bx0, by0, label, style, depth, onPress, opts = {}) {
     const btn = makeButton(this, bx0, by0, label, style, depth, onPress, {
@@ -1350,10 +1357,7 @@ export default class LevelScene extends Phaser.Scene {
   _closeTowerPopup() {
     if (!this._towerPopup) return;
     this._towerPopup.focusGroup?.destroy();
-    for (const obj of this._towerPopup.destroyables) {
-      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); obj._hit?.destroy(); }
-      else obj?.destroy();
-    }
+    this._destroyPanelObjects(this._towerPopup.destroyables);
     this._towerPopup = null;
     this._overButton = false;
   }
