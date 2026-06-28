@@ -28,7 +28,9 @@ export const LEVELS = [
   {
     id: 'level-1',
     background: 'assets/levels/L1-Map-ForestOutpost.jpg',
-    waypoints: [
+    paths: [
+    // Primary path
+    [
       bgPt(289, 310),
       bgPt(357, 381),
       bgPt(422, 441),
@@ -46,6 +48,7 @@ export const LEVELS = [
       bgPt(765, 780),
       bgPt(791, 836),
       bgPt(790, 901),
+    ],
     ],
     placementZones: [
     // Left clearing
@@ -105,7 +108,9 @@ export const LEVELS = [
   {
     id: 'level-2',
     background: 'assets/levels/L2-Map-GoblinWarren.jpg',
-    waypoints: [
+    paths: [
+    // Primary path
+    [
       bgPt(603, 899),
       bgPt(590, 778),
       bgPt(557, 714),
@@ -128,6 +133,30 @@ export const LEVELS = [
       bgPt(779, 94),
       bgPt(798, 5),
     ],
+    // Secondary path
+    [
+      bgPt(603, 899),
+      bgPt(590, 778),
+      bgPt(557, 714),
+      bgPt(500, 678),
+      bgPt(456, 654),
+      bgPt(400, 633),
+      bgPt(334, 630),
+      bgPt(242, 617),
+      bgPt(166, 544),
+      bgPt(162, 467),
+      bgPt(193, 383),
+      bgPt(250, 326),
+      bgPt(330, 278),
+      bgPt(412, 249),
+      bgPt(512, 237),
+      bgPt(628, 229),
+      bgPt(712, 203),
+      bgPt(748, 152),
+      bgPt(779, 94),
+      bgPt(798, 5),
+    ],
+    ],
     placementZones: [
     // Zone 0 - Central island
     [       
@@ -147,7 +176,7 @@ export const LEVELS = [
       bgPt(334, 347),
     ],
     // Zone 1
-  [
+    [
     bgPt(185, 119),
     bgPt(239, 115),
     bgPt(316, 123),
@@ -177,7 +206,7 @@ export const LEVELS = [
     bgPt(111, 229),
     bgPt(147, 208),
     bgPt(182, 171),
-  ],
+    ],
     // Zone 2 - central bottom
     [ 
       bgPt(671, 786),
@@ -255,7 +284,9 @@ export const LEVELS = [
     id: 'level-3',
     background: 'assets/levels/L3-Map-RiverCrossing.jpg',
     // Path: enter bottom of map, wind up through goblin warren, exit top
-    waypoints: [
+    paths: [
+    // Primary path
+    [
       bgPt(466, 898),
       bgPt(467, 804),
       bgPt(465, 717),
@@ -275,6 +306,28 @@ export const LEVELS = [
       bgPt(592, 107),
       bgPt(617, 52),
       bgPt(628, 0),
+    ],
+    // Secondary path 1
+    [
+      bgPt(466, 898),
+      bgPt(467, 804),
+      bgPt(480, 725),
+      bgPt(553, 680),
+      bgPt(644, 683),
+      bgPt(736, 676),
+      bgPt(818, 659),
+      bgPt(900, 630),
+      bgPt(954, 573),
+      bgPt(977, 488),
+      bgPt(961, 396),
+      bgPt(921, 316),
+      bgPt(853, 258),
+      bgPt(786, 199),
+      bgPt(709, 150),
+      bgPt(625, 118),
+      bgPt(616, 61),
+      bgPt(621, 0),
+    ],
     ],
     placementZones: [
     // Zone 0 - Central clearing (top)
@@ -398,7 +451,9 @@ export const LEVELS = [
     id: 'level-4',
     background: 'assets/levels/L4-Map-StonebackRidge.jpg',
     // Path: enter bottom-center, snake up-left then curve right, exit top-center
-    waypoints: [
+    paths: [
+    // Primary path
+    [
       bgPt(621, 2),
       bgPt(603, 69),
       bgPt(573, 134),
@@ -419,6 +474,7 @@ export const LEVELS = [
       bgPt(511, 767),
       bgPt(465, 828),
       bgPt(453, 901),
+    ],
     ],
     placementZones: [
     // Zone 0 - Central

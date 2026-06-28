@@ -2,10 +2,13 @@
 
 ## Levels
 - [ ] Add additional levels (Level 3 onwards)
-- [ ] Multi-path support — enemies split across branching routes (requires data model change: `waypoints` → `paths[]`, enemy assigned a path on spawn, editor extended to edit multiple paths)
-- [ ] Difficulty select in campaign map level popup (Easy / Normal / Hard)
+- [ ] Multi-path support — engine + editor done (Easy = path 0; Medium spreads spawns across all `level.paths`; editor edits every path; export dumps all paths). REMAINING: supply secondary path waypoints for Mudflats and Stoneback Ridge (Goblin Warren done).
+- [ ] Editor: "add new path" action — currently new paths are added by hand in `src/data/levels.js`; editor can only edit/move/insert/delete on existing paths.
+- [ ] Promote difficulty from per-level (current) to a single campaign-wide setting that cascades to all levels
+- [ ] Add Veteran difficulty + per-difficulty stat scaling (HP/count/gold) — config in `src/logic/difficulty.js` is structured for it
 
 ## Turrets
+- [ ] **(Priority)** User-defined rally points for Barracks defenders — let the player drag/set where a Barracks' defenders stand guard, instead of the fixed auto-placed rally points
 - [ ] Tower upgrade tiers (3 tiers per type)
 
 ## Assets
