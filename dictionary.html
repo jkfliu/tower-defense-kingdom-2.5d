@@ -103,6 +103,7 @@ import { TURRET_TYPES as GAME_TURRETS } from './src/data/turrets.js';
 import { ENEMY_TYPES as GAME_ENEMIES } from './src/data/enemies.js';
 import { defenderForLevel } from './src/data/defenders.js';
 import { mergedStats, upgradeCost } from './src/logic/upgrades.js';
+import { titleCaseKey } from './src/utils/text.js';
 
 const CANVAS_W = 900, CANVAS_H = 560;
 
@@ -124,9 +125,8 @@ function enemyUnlockLabel(enemyKey) {
   return idx === -1 ? null : `Level ${idx + 1} — ${CAMPAIGN_LEVELS[idx].name}`;
 }
 
-// Title-case a camelCase enemy key: 'skeletonArcher' → 'Skeleton Archer',
-// 'evilPriest' → 'Evil Priest'.
-const cap = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+// Title-case a camelCase enemy key (shared util): 'skeletonArcher' → 'Skeleton Archer'.
+const cap = titleCaseKey;
 const ENEMY_TYPES = Object.values(GAME_ENEMIES).map(e => {
   const walk = e.animations.find(a => a.key === 'walk') ?? { row: 1, frames: 1 };
   return { ...e, label: cap(e.key), walkRow: walk.row, walkFrames: walk.frames };

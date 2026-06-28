@@ -4,23 +4,23 @@ import { ENEMY_TYPES } from '../data/enemies.js';
 import { TURRET_TYPES } from '../data/turrets.js';
 import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defenders.js';
 import {
-  inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
-  tickCooldown,
-  arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal, clampToEllipse, nearestPath,
+  nearestEnemyInRange, pickDefenderTarget, stepToward,
+  tickCooldown, defenderShouldDropTarget, withinMelee,
+  arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal, clampToEllipse, nearestPath, arcPosition,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { activePathCount, pickPathIndex } from '../logic/difficulty.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
+import { titleCaseKey } from '../utils/text.js';
 import { soundManager } from '../utils/sound.js';
 
 const TOWER_SELL_HIT_R  = 28;
 const WP_HIT_R          = 30;
 
-// Title-case an enemy key for display: 'skeletonArcher' → 'Skeleton Archer',
-// 'evilPriest' → 'Evil Priest'. Mirrors dictionary.html's label logic.
-const enemyLabel = key =>
-  key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+// Enemy keys are title-cased for display via the shared util (also used by the
+// dictionary page) — 'skeletonArcher' → 'Skeleton Archer'.
+const enemyLabel = titleCaseKey;
 
 // First frame of the Defender's walk row — held as a stand-in "idle" pose, since
 // the spritesheet has no idle row. Derived once from the static data.
@@ -28,6 +28,18 @@ const DEFENDER_IDLE_FRAME =
   DEFENDER_TYPE.animations.find(a => a.key === 'walk').row * DEFENDER_TYPE.sheetCols;
 const PLACEMENT_TILE_W  = 32;
 const PLACEMENT_TILE_H  = 18;
+
+// Bullet behaviour registry: maps bulletType → the scene method NAMES that spawn
+// (`fire`) and advance (`update`) it. Dispatch is a table lookup (`this[name](…)`),
+// so adding a bullet type is one entry here instead of editing two if/else chains.
+// `fire` is only needed for turret-launched types; `enemyArrow` is fired directly by
+// enemy logic.
+const BULLET_KINDS = {
+  arrow:      { fire: '_fireArrow', update: '_updateArrow' },
+  orb:        { fire: '_fireOrb',   update: '_updateOrb' },
+  bomb:       { fire: '_fireBomb',  update: '_updateBomb' },
+  enemyArrow: {                     update: '_updateEnemyArrow' },
+};
 
 export default class LevelScene extends Phaser.Scene {
   constructor() { super('LevelScene'); }
@@ -155,6 +167,18 @@ export default class LevelScene extends Phaser.Scene {
     this._overButton     = false;
     this._restartConfirm = null;
 
+    // Depth bands (back → front), so the literal setDepth values across this file
+    // read against a documented stacking order:
+    //   0      background image
+    //   10     debug graphics
+    //   600    bullets / projectiles, 650 explosions
+    //   700    entity graphics (HP bars etc.), <y> per-sprite (enemies/defenders by y)
+    //   800    placement preview
+    //   900–902  HUD buttons + enemy/unlock preview cards
+    //   1000–1002 tower placement / sell popups
+    //   1100   pause + editor labels
+    //   1200–1302 level overlay (gameover/victory/between) + its unlock rows
+    //   1400–1401 restart-confirm modal (top-most)
     this.debugGraphics   = this.add.graphics().setDepth(10);
     this.entityGraphics  = this.add.graphics().setDepth(700);
     this.previewGraphics = this.add.graphics().setDepth(800);
@@ -1128,14 +1152,21 @@ export default class LevelScene extends Phaser.Scene {
     if (!this._restartConfirm) return;
     const { gfx, msg, yesBtn, noBtn, focusGroup } = this._restartConfirm;
     focusGroup.destroy();
-    gfx.destroy();
-    msg.destroy();
-    yesBtn._gfx.destroy(); yesBtn._txt.destroy(); yesBtn._hit.destroy();
-    noBtn._gfx.destroy();  noBtn._txt.destroy();  noBtn._hit.destroy();
+    this._destroyPanelObjects([gfx, msg, yesBtn, noBtn]);
     this._restartConfirm = null;
   }
 
   // ─── Button factory ───────────────────────────────────────────────────────
+
+  // Destroy a mixed list of panel objects: makeButton returns (with _gfx/_txt/_hit)
+  // need all three torn down (the _hit Zone otherwise leaks and keeps capturing
+  // input); plain GameObjects just .destroy(). Shared by every popup teardown.
+  _destroyPanelObjects(objects) {
+    for (const obj of objects) {
+      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); obj._hit?.destroy(); }
+      else obj?.destroy();
+    }
+  }
 
   _makeButton(bx0, by0, label, style, depth, onPress, opts = {}) {
     const btn = makeButton(this, bx0, by0, label, style, depth, onPress, {
@@ -1338,10 +1369,7 @@ export default class LevelScene extends Phaser.Scene {
   _closeTowerPopup() {
     if (!this._towerPopup) return;
     this._towerPopup.focusGroup?.destroy();
-    for (const obj of this._towerPopup.destroyables) {
-      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); obj._hit?.destroy(); }
-      else obj?.destroy();
-    }
+    this._destroyPanelObjects(this._towerPopup.destroyables);
     this._towerPopup = null;
     this._overButton = false;
   }
@@ -1751,8 +1779,7 @@ export default class LevelScene extends Phaser.Scene {
       def.attackCooldown = tickCooldown(def.attackCooldown, deltaMs);
 
       // Drop a target that died or wandered out of the perimeter.
-      if (def.target && (def.target.dying ||
-          !inEllipse(def.target.x - def.tower.cx, def.target.y - def.tower.cy, def.tower.range))) {
+      if (def.target && defenderShouldDropTarget(def.target, def.tower)) {
         this._releaseTarget(def);
         def.target = null;
         if (def.state === 'ENGAGED' || def.state === 'SEEKING') def.state = 'RETURNING';
@@ -1788,9 +1815,7 @@ export default class LevelScene extends Phaser.Scene {
           def.x = r.x; def.y = r.y;
           if (r.dx !== 0) def.sprite.setFlipX(r.dx < 0);
           this._playDefenderAnim(def, 'walk');
-          const dx = def.target.x - def.x;
-          const dy = def.target.y - def.y;
-          if (Math.sqrt(dx * dx + dy * dy) <= d.meleeRange) {
+          if (withinMelee(def, def.target, d.meleeRange)) {
             // Already reserved at selection; engaging is what halts the enemy.
             def.state = 'ENGAGED';
           }
@@ -1807,8 +1832,7 @@ export default class LevelScene extends Phaser.Scene {
         }
       }
 
-      def.sprite.setPosition(def.x, def.y);
-      def.sprite.setDepth(def.y);
+      this._placeSprite(def.sprite, def.x, def.y);
     }
   }
 
@@ -1954,15 +1978,13 @@ export default class LevelScene extends Phaser.Scene {
       return;
     }
 
+    const start = { x: b.startX, y: b.startY };
+    const end   = { x: b.endX,   y: b.endY };
     const tc    = Math.min(tRaw, 1);
-    const prevT = Math.max(0, tc - 0.01);
-    const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
-    const px = b.startX + (b.endX - b.startX) * tc;
-    const py = b.startY + (b.endY - b.startY) * tc + arcY(tc);
-    const qx = b.startX + (b.endX - b.startX) * prevT;
-    const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
-    b.sprite.setPosition(px, py);
-    b.sprite.setRotation(Math.atan2(py - qy, px - qx));
+    const p = arcPosition(start, end, b.arcHeight, tc);
+    const q = arcPosition(start, end, b.arcHeight, Math.max(0, tc - 0.01));
+    b.sprite.setPosition(p.x, p.y);
+    b.sprite.setRotation(Math.atan2(p.y - q.y, p.x - q.x));
   }
 
   _updateOrb(b, dt, i) {
@@ -2026,15 +2048,13 @@ export default class LevelScene extends Phaser.Scene {
       return;
     }
 
+    const start = { x: b.startX, y: b.startY };
+    const end   = { x: b.endX,   y: b.endY };
     const tc    = Math.min(tRaw, 1);
-    const prevT = Math.max(0, tc - 0.01);
-    const arcY  = (t) => -b.arcHeight * 4 * t * (1 - t);
-    const px = b.startX + (b.endX - b.startX) * tc;
-    const py = b.startY + (b.endY - b.startY) * tc + arcY(tc);
-    const qx = b.startX + (b.endX - b.startX) * prevT;
-    const qy = b.startY + (b.endY - b.startY) * prevT + arcY(prevT);
-    b.sprite.setPosition(px, py);
-    b.sprite.setRotation(Math.atan2(py - qy, px - qx));
+    const p = arcPosition(start, end, b.arcHeight, tc);
+    const q = arcPosition(start, end, b.arcHeight, Math.max(0, tc - 0.01));
+    b.sprite.setPosition(p.x, p.y);
+    b.sprite.setRotation(Math.atan2(p.y - q.y, p.x - q.x));
   }
 
   _fireBomb(t, nearest) {
@@ -2072,11 +2092,9 @@ export default class LevelScene extends Phaser.Scene {
       return;
     }
 
-    const tc   = Math.min(tRaw, 1);
-    const arcY = (t) => -b.arcHeight * 4 * t * (1 - t);
-    const px   = b.startX + (b.endX - b.startX) * tc;
-    const py   = b.startY + (b.endY - b.startY) * tc + arcY(tc);
-    b.sprite.setPosition(px, py);
+    const tc = Math.min(tRaw, 1);
+    const p  = arcPosition({ x: b.startX, y: b.startY }, { x: b.endX, y: b.endY }, b.arcHeight, tc);
+    b.sprite.setPosition(p.x, p.y);
     b.sprite.setRotation(b.elapsed * 5);
   }
 
@@ -2238,8 +2256,7 @@ export default class LevelScene extends Phaser.Scene {
               }
             }
           }
-          e.sprite.setPosition(e.x, e.y);
-          e.sprite.setDepth(e.y);
+          this._placeSprite(e.sprite, e.x, e.y);
           continue;
         }
       }
@@ -2270,8 +2287,7 @@ export default class LevelScene extends Phaser.Scene {
               e.sprite.play(`${e.type}_idle`);
             }
           }
-          e.sprite.setPosition(e.x, e.y);
-          e.sprite.setDepth(e.y);
+          this._placeSprite(e.sprite, e.x, e.y);
           continue;
         }
         // No wounded allies in range — resume marching, ready to channel on demand.
@@ -2294,8 +2310,7 @@ export default class LevelScene extends Phaser.Scene {
             e.sprite.setFlipX(blocker.x < e.x);
             this._applyDefenderHit(blocker, def.meleeDamage ?? 10);
           }
-          e.sprite.setPosition(e.x, e.y);
-          e.sprite.setDepth(e.y);
+          this._placeSprite(e.sprite, e.x, e.y);
           continue;
         }
         // else: claimed but the Defender is still approaching — keep walking normally.
@@ -2328,8 +2343,7 @@ export default class LevelScene extends Phaser.Scene {
         }
       }
 
-      e.sprite.setPosition(e.x, e.y);
-      e.sprite.setDepth(e.y);
+      this._placeSprite(e.sprite, e.x, e.y);
     }
   }
 
@@ -2344,9 +2358,7 @@ export default class LevelScene extends Phaser.Scene {
       if (nearest) {
         t.fireCooldown = t.fireRate;
         t.aimAngle = Math.atan2(nearest.y - t.cy, nearest.x - t.cx);
-        if (t.bulletType === 'arrow')    this._fireArrow(t, nearest);
-        else if (t.bulletType === 'bomb') this._fireBomb(t, nearest);
-        else                              this._fireOrb(t, nearest);
+        this[BULLET_KINDS[t.bulletType].fire](t, nearest);
       }
     }
   }
@@ -2354,15 +2366,19 @@ export default class LevelScene extends Phaser.Scene {
   _updateBullets(dt) {
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
-      if (b.bulletType === 'arrow')         this._updateArrow(b, dt, i);
-      else if (b.bulletType === 'enemyArrow') this._updateEnemyArrow(b, dt, i);
-      else if (b.bulletType === 'bomb')      this._updateBomb(b, dt, i);
-      else                                   this._updateOrb(b, dt, i);
+      this[BULLET_KINDS[b.bulletType].update](b, dt, i);
     }
   }
 
 
   // ─── Entity rendering ─────────────────────────────────────────────────────
+
+  // Place a ground entity's sprite at (x, y), depth-sorted by y (the iso convention:
+  // lower-on-screen draws in front). Used for enemies and defenders each frame.
+  _placeSprite(sprite, x, y) {
+    sprite.setPosition(x, y);
+    sprite.setDepth(y);
+  }
 
   _drawEntities() {
     this.entityGraphics.clear();

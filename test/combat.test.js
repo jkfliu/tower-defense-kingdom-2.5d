@@ -15,6 +15,9 @@ import {
   applyHeal,
   clampToEllipse,
   nearestPath,
+  arcPosition,
+  defenderShouldDropTarget,
+  withinMelee,
 } from '../src/logic/combat.js';
 
 describe('inEllipse', () => {
@@ -434,5 +437,73 @@ describe('nearestPath', () => {
   it('with a single path always returns index 0', () => {
     const r = nearestPath({ x: 50, y: 999 }, [pathA]);
     expect(r.pathIdx).toBe(0);
+  });
+});
+
+describe('arcPosition', () => {
+  // Parabolic lob: linear interpolation start→end plus an upward (negative-y) arc
+  // peaking at t=0.5. Shared by tower arrows, enemy arrows, and bombs.
+  const start = { x: 0, y: 0 };
+  const end   = { x: 100, y: 0 };
+
+  it('is at the start at t=0', () => {
+    const p = arcPosition(start, end, 40, 0);
+    expect(p.x).toBeCloseTo(0);
+    expect(p.y).toBeCloseTo(0);
+  });
+
+  it('is at the end at t=1', () => {
+    const p = arcPosition(start, end, 40, 1);
+    expect(p.x).toBeCloseTo(100);
+    expect(p.y).toBeCloseTo(0);
+  });
+
+  it('interpolates x linearly', () => {
+    expect(arcPosition(start, end, 40, 0.25).x).toBeCloseTo(25);
+    expect(arcPosition(start, end, 40, 0.75).x).toBeCloseTo(75);
+  });
+
+  it('peaks (max height) at t=0.5 with y = -arcHeight', () => {
+    const p = arcPosition(start, end, 40, 0.5);
+    expect(p.x).toBeCloseTo(50);
+    expect(p.y).toBeCloseTo(-40);   // 4*0.5*(1-0.5)=1 → -arcHeight
+  });
+
+  it('adds the arc on top of the y interpolation for sloped shots', () => {
+    const sloped = arcPosition({ x: 0, y: 0 }, { x: 0, y: 100 }, 20, 0.5);
+    // linear y = 50, arc = -20 → 30
+    expect(sloped.y).toBeCloseTo(30);
+  });
+});
+
+describe('defenderShouldDropTarget', () => {
+  // A defender drops its target when it has none, the target died, or the target
+  // left the tower's range ellipse (centered on the tower, 2:1).
+  const tower = { cx: 0, cy: 0, range: 100 };
+
+  it('drops when there is no target', () => {
+    expect(defenderShouldDropTarget(null, tower)).toBe(true);
+  });
+
+  it('drops a dying target', () => {
+    expect(defenderShouldDropTarget({ x: 10, y: 0, dying: true }, tower)).toBe(true);
+  });
+
+  it('keeps a live target inside range', () => {
+    expect(defenderShouldDropTarget({ x: 50, y: 0, dying: false }, tower)).toBe(false);
+  });
+
+  it('drops a target that wandered out of the range ellipse', () => {
+    expect(defenderShouldDropTarget({ x: 150, y: 0, dying: false }, tower)).toBe(true);
+  });
+});
+
+describe('withinMelee', () => {
+  it('true when within the melee range', () => {
+    expect(withinMelee({ x: 0, y: 0 }, { x: 3, y: 4 }, 5)).toBe(true);   // dist 5
+  });
+
+  it('false when beyond the melee range', () => {
+    expect(withinMelee({ x: 0, y: 0 }, { x: 3, y: 4 }, 4)).toBe(false);  // dist 5 > 4
   });
 });

@@ -45,6 +45,21 @@ export function pickDefenderTarget(pos, enemies, range) {
   return nearestEnemyInRange(pos, enemies, range, { skipBlocked: true });
 }
 
+// Whether a Defender should drop its current target: no target, the target died, or
+// it left the tower's range ellipse (centered on the tower, 2:1). `tower` is { cx, cy,
+// range }.
+export function defenderShouldDropTarget(target, tower) {
+  if (!target || target.dying) return true;
+  return !inEllipse(target.x - tower.cx, target.y - tower.cy, tower.range);
+}
+
+// Whether `a` is within `meleeRange` of `b` (plain Euclidean distance).
+export function withinMelee(a, b, meleeRange) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  return Math.sqrt(dx * dx + dy * dy) <= meleeRange;
+}
+
 // Move `pos` toward `target` by speed*dt. Snaps and reports `arrived` when the
 // remaining distance is within a single step. `dx` carries the x-direction sign
 // for sprite flipping.
@@ -204,6 +219,17 @@ export function enemiesInRadius(origin, enemies, radius) {
 // Heal `hp` by `healAmount`, never exceeding `maxHp` (no overheal).
 export function applyHeal(hp, healAmount, maxHp) {
   return Math.min(maxHp, hp + healAmount);
+}
+
+// Position along a parabolic lob from `start` to `end` at normalized time t∈[0,1]:
+// linear interpolation plus an upward (negative-y) arc that peaks at t=0.5 with
+// height `arcHeight`. Shared by tower arrows, dodgeable enemy arrows, and bombs.
+export function arcPosition(start, end, arcHeight, t) {
+  const arc = -arcHeight * 4 * t * (1 - t);   // 0 at the ends, -arcHeight at t=0.5
+  return {
+    x: start.x + (end.x - start.x) * t,
+    y: start.y + (end.y - start.y) * t + arc,
+  };
 }
 
 // Whether a dodgeable enemy arrow connects on arrival: the target must still be
