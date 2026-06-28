@@ -65,6 +65,28 @@ export default class CampaignMapScene extends Phaser.Scene {
       fontSize: '14px', fontFamily: 'Cinzel', color: '#5a3c10',
       wordWrap: { width: 320 }, align: 'center',
     }).setOrigin(0.5, 0).setDepth(101).setVisible(false);
+    // Difficulty selector — a segmented Easy/Medium toggle drawn on the popup layer
+    // and hit-tested manually in _onPointerUp (the popup's reliable input path).
+    // Default Easy; the user toggles, then hits Begin. (Longer term this becomes a
+    // single campaign-wide setting.)
+    // Difficulty options are data-driven so adding Veteran (or more) is just an extra
+    // entry here — layout, drawing and hit-testing all derive from this list.
+    this._selectedDifficulty = 'easy';
+    this._diffOptions = [
+      { key: 'easy',   label: 'Easy'   },
+      { key: 'medium', label: 'Medium' },
+    ];
+    this._diffSegments = [];   // { key, x, y, w, h } per segment, set in _openPopup
+    this._popupDiffLabel = this.add.text(0, 0, 'Difficulty', {
+      fontSize: '13px', fontFamily: 'Cinzel', color: '#5a3c10',
+    }).setOrigin(0.5, 0).setDepth(101).setVisible(false);
+    // One label Text per option, created up-front and reused.
+    this._diffTexts = this._diffOptions.map(opt =>
+      this.add.text(0, 0, opt.label, {
+        fontSize: '14px', fontFamily: 'Cinzel', color: '#3a2408',
+      }).setOrigin(0.5, 0.5).setDepth(102).setVisible(false)
+    );
+
     this._popupBeginBtn = makeButton(this, 0, 0, 'Begin!', 'gold', 101, () => this._beginLevel(), { shadow: false });
     this._popupBeginBtn.setVisible(false);
     this._popupFocusGroup = null;
@@ -176,8 +198,13 @@ export default class CampaignMapScene extends Phaser.Scene {
     // Suppress click if it was a drag
     if (dragDist > 5 && !this._popup) return;
 
-    // Close popup on click outside card
     if (this._popup) {
+      // Difficulty segment click takes priority over the close-on-outside check.
+      const seg = this._diffSegments.find(s =>
+        p.x >= s.x && p.x <= s.x + s.w && p.y >= s.y && p.y <= s.y + s.h);
+      if (seg) { this._setDifficulty(seg.key); return; }
+
+      // Begin button handles its own click; clicks outside the card close the popup.
       const { px, py, PW, PH } = this._popup;
       if (p.x < px || p.x > px + PW || p.y < py || p.y > py + PH) {
         this._closePopup();
@@ -220,14 +247,34 @@ export default class CampaignMapScene extends Phaser.Scene {
     const descTop = 16;
     const descBot = 16;
     const descH   = this._popupDesc.height;
-    const btnH    = 36;
-    const PH      = titleH + descTop + descH + descBot + btnH + pad;
+    const diffLblH = 18;  // "Difficulty" label
+    const segH     = 30;  // segmented toggle height
+    const diffGap  = 16;
+    const btnH     = 36;
+    const PH      = titleH + descTop + descH + descBot + diffLblH + segH + diffGap + btnH + pad;
     const px      = (CANVAS_W - PW) / 2;
     const py      = (CANVAS_H - PH) / 2;
 
     this._popupTitle.setPosition(px + PW / 2, py + 16);
     this._popupDesc.setPosition(px + PW / 2, py + titleH + descTop);
-    this._popupBeginBtn.setPosition(px + PW / 2, py + titleH + descTop + descH + descBot + pad).setVisible(true);
+
+    // Difficulty row: "Difficulty" label, then a centered two-segment toggle.
+    const diffLblY = py + titleH + descTop + descH + descBot;
+    this._popupDiffLabel.setPosition(px + PW / 2, diffLblY).setVisible(true);
+
+    // N evenly-sized segments, centered on the card (works for 2, 3, … options).
+    const n = this._diffOptions.length;
+    const segW = 90, segY = diffLblY + diffLblH;
+    const segLeft = px + PW / 2 - (segW * n) / 2;
+    this._diffSegments = this._diffOptions.map((opt, i) => ({
+      key: opt.key, x: segLeft + i * segW, y: segY, w: segW, h: segH,
+    }));
+    this._diffTexts.forEach((t, i) => {
+      t.setPosition(segLeft + i * segW + segW / 2, segY + segH / 2).setVisible(true);
+    });
+    this._setDifficulty(this._selectedDifficulty);   // apply selected-segment colour
+
+    this._popupBeginBtn.setPosition(px + PW / 2, segY + segH + diffGap + btnH / 2).setVisible(true);
 
     this._popupFocusGroup?.destroy();
     this._popupFocusGroup = new FocusGroup(this, [
@@ -237,22 +284,35 @@ export default class CampaignMapScene extends Phaser.Scene {
     this._popup = { levelId, px, py, PW, PH };
   }
 
+  _setDifficulty(diff) {
+    this._selectedDifficulty = diff;
+    // Selected segment label uses a brighter colour; the rest are muted.
+    this._diffTexts.forEach((t, i) => {
+      t.setColor(this._diffOptions[i].key === diff ? '#3a2408' : '#8a7048');
+    });
+  }
+
   _closePopup() {
     this._popupFocusGroup?.destroy();
     this._popupFocusGroup = null;
     this._popup = null;
     this._popupTitle.setVisible(false);
     this._popupDesc.setVisible(false);
+    this._popupDiffLabel.setVisible(false);
+    this._diffTexts.forEach(t => t.setVisible(false));
+    this._diffSegments = [];
     this._popupBeginBtn.setVisible(false);
   }
 
   _beginLevel() {
     const id = this._popup.levelId;
+    const difficulty = this._selectedDifficulty;
     this._closePopup();
     this.scene.start('LevelScene', {
       levelId:       id,
       currentLevel:  this.currentLevel,
       campaignScore: this.campaignScore,
+      difficulty,
     });
   }
 
@@ -445,6 +505,33 @@ export default class CampaignMapScene extends Phaser.Scene {
     g.moveTo(px + 20, py + 44);
     g.lineTo(px + PW - 20, py + 44);
     g.strokePath();
+
+    // Segmented difficulty toggle: outlined pill, selected segment filled gold,
+    // thin dividers between segments. Data-driven from _diffSegments (any count).
+    if (this._diffSegments.length) {
+      const segs = this._diffSegments;
+      const x0 = segs[0].x, y0 = segs[0].y, h = segs[0].h;
+      const totalW = segs.length * segs[0].w;
+      const r = 6;
+
+      for (const s of segs) {
+        if (s.key === this._selectedDifficulty) {
+          g.fillStyle(0xd4a010, 1);
+          g.fillRect(s.x, s.y, s.w, s.h);
+        }
+      }
+      // Dividers between segments
+      g.lineStyle(1, 0x7a5018, 0.6);
+      for (let i = 1; i < segs.length; i++) {
+        g.beginPath();
+        g.moveTo(segs[i].x, y0);
+        g.lineTo(segs[i].x, y0 + h);
+        g.strokePath();
+      }
+      // Outer pill border
+      g.lineStyle(2, 0x7a5018, 1);
+      g.strokeRoundedRect(x0, y0, totalW, h, r);
+    }
   }
 
 }

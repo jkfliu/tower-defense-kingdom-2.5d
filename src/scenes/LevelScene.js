@@ -9,6 +9,7 @@ import {
   arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
+import { activePathCount, pickPathIndex } from '../logic/difficulty.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
 import { soundManager } from '../utils/sound.js';
@@ -128,7 +129,14 @@ export default class LevelScene extends Phaser.Scene {
     this.spawnInterval   = this._nextSpawnDelay();
     this._betweenTimer   = 0;
 
-    this.waypoints = this.levelConfig.waypoints;
+    // Difficulty + paths. Every level defines `paths: [primary, secondary, …]`.
+    // Easy uses only path 0; Medium spreads spawns across all defined paths (see
+    // spawnEnemy). `this.waypoints` stays the PRIMARY path — editor, debug, and
+    // Barracks rally math run on it.
+    this.difficulty = data.difficulty ?? 'easy';
+    this.paths      = this.levelConfig.paths;
+    this.waypoints  = this.paths[0];
+    this._activePathCount = activePathCount(this.difficulty, this.paths.length);
 
     this._towerPopup     = null; // { x, y, cards: [...Text] } or null
     this._overButton     = false;
@@ -200,8 +208,8 @@ export default class LevelScene extends Phaser.Scene {
         this._dragMoved = true;
         const pt = { x: Math.round(p.x), y: Math.round(p.y) };
         if (this._drag.type === 'path') {
-          this.waypoints[this._drag.idx] = pt;
-          this._setStatusBar(`Waypoint ${this._drag.idx}: ${pt.x}, ${pt.y}`, 'neutral');
+          this.paths[this._drag.pathIdx][this._drag.idx] = pt;
+          this._setStatusBar(`Path ${this._drag.pathIdx} · waypoint ${this._drag.idx}: ${pt.x}, ${pt.y}`, 'neutral');
         } else {
           this.levelConfig.placementZones[this._drag.zoneIdx][this._drag.vertIdx] = pt;
           this._setStatusBar(`Zone ${this._drag.zoneIdx} vertex ${this._drag.vertIdx}: ${pt.x}, ${pt.y}`, 'neutral');
@@ -336,8 +344,9 @@ export default class LevelScene extends Phaser.Scene {
     const onDelete = () => {
       if (!this.editorMode || !this._drag) return;
       if (this._drag.type === 'path') {
-        if (this.waypoints.length > 2) {
-          this.waypoints.splice(this._drag.idx, 1);
+        const path = this.paths[this._drag.pathIdx];
+        if (path.length > 2) {
+          path.splice(this._drag.idx, 1);
           this._drag = null;
           this._redrawDebug();
           this._logWaypoints();
@@ -823,18 +832,27 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _drawDebugPath() {
-    this.debugGraphics.lineStyle(2, 0xff0000, 0.6);
-    this.debugGraphics.beginPath();
-    this.debugGraphics.moveTo(this.waypoints[0].x, this.waypoints[0].y);
-    for (let i = 1; i < this.waypoints.length; i++) {
-      this.debugGraphics.lineTo(this.waypoints[i].x, this.waypoints[i].y);
-    }
-    this.debugGraphics.strokePath();
-    for (const { x, y } of this.waypoints) {
-      this.debugGraphics.fillStyle(0xff0000, 0.9);
-      this.debugGraphics.fillCircle(x, y, 6);
-      this.debugGraphics.lineStyle(1, 0xffffff, 0.8);
-      this.debugGraphics.strokeCircle(x, y, 6);
+    // Both Debug and Editor draw EVERY defined path (regardless of which are active
+    // for the current difficulty). The primary (path 0) is red; secondary paths are
+    // cyan so they're distinguishable. The selected waypoint (editor) is larger/yellow.
+    for (let p = 0; p < this.paths.length; p++) {
+      const path    = this.paths[p];
+      const lineCol = p === 0 ? 0xff0000 : 0x00d0ff;
+      this.debugGraphics.lineStyle(2, lineCol, 0.6);
+      this.debugGraphics.beginPath();
+      this.debugGraphics.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) {
+        this.debugGraphics.lineTo(path[i].x, path[i].y);
+      }
+      this.debugGraphics.strokePath();
+      for (let i = 0; i < path.length; i++) {
+        const { x, y } = path[i];
+        const selected = this._drag?.type === 'path' && this._drag.pathIdx === p && this._drag.idx === i;
+        this.debugGraphics.fillStyle(selected ? 0xffff00 : lineCol, 0.9);
+        this.debugGraphics.fillCircle(x, y, selected ? 8 : 6);
+        this.debugGraphics.lineStyle(1, 0xffffff, 0.8);
+        this.debugGraphics.strokeCircle(x, y, selected ? 8 : 6);
+      }
     }
   }
 
@@ -936,15 +954,18 @@ export default class LevelScene extends Phaser.Scene {
     const zones = this.levelConfig.placementZones;
     const pt    = { x: Math.round(p.x), y: Math.round(p.y) };
 
-    // Hit-test waypoints
-    for (let i = 0; i < this.waypoints.length; i++) {
-      const { x, y } = this.waypoints[i];
-      if (Math.hypot(p.x - x, p.y - y) <= 12) {
-        const alreadySelected = this._drag?.type === 'path' && this._drag.idx === i;
-        this._drag = alreadySelected ? null : { type: 'path', idx: i };
-        this._dragMoved = false;
-        this._redrawDebug();
-        return;
+    // Hit-test waypoints across every path
+    for (let pi = 0; pi < this.paths.length; pi++) {
+      const path = this.paths[pi];
+      for (let i = 0; i < path.length; i++) {
+        const { x, y } = path[i];
+        if (Math.hypot(p.x - x, p.y - y) <= 12) {
+          const alreadySelected = this._drag?.type === 'path' && this._drag.pathIdx === pi && this._drag.idx === i;
+          this._drag = alreadySelected ? null : { type: 'path', pathIdx: pi, idx: i };
+          this._dragMoved = false;
+          this._redrawDebug();
+          return;
+        }
       }
     }
 
@@ -966,15 +987,19 @@ export default class LevelScene extends Phaser.Scene {
     this._drag = null;
     this._redrawDebug();
 
-    // Double-click on a path segment inserts a new waypoint
+    // Double-click on a path segment inserts a new waypoint (nearest segment across
+    // all paths)
     if (dblClick) {
-      let bestPath = { dist: Infinity, idx: -1 };
-      for (let i = 0; i < this.waypoints.length - 1; i++) {
-        const d = this._distToSegment(p.x, p.y, this.waypoints[i], this.waypoints[i + 1]);
-        if (d < bestPath.dist) bestPath = { dist: d, idx: i };
+      let bestPath = { dist: Infinity, pathIdx: -1, idx: -1 };
+      for (let pi = 0; pi < this.paths.length; pi++) {
+        const path = this.paths[pi];
+        for (let i = 0; i < path.length - 1; i++) {
+          const d = this._distToSegment(p.x, p.y, path[i], path[i + 1]);
+          if (d < bestPath.dist) bestPath = { dist: d, pathIdx: pi, idx: i };
+        }
       }
       if (bestPath.dist < 20) {
-        this.waypoints.splice(bestPath.idx + 1, 0, pt);
+        this.paths[bestPath.pathIdx].splice(bestPath.idx + 1, 0, pt);
         this._redrawDebug();
         this._logWaypoints();
         return;
@@ -1006,10 +1031,17 @@ export default class LevelScene extends Phaser.Scene {
   }
 
   _logWaypoints() {
-    const lines = this.waypoints.map(({ x, y }) =>
-      `  bgPt(${Math.round(x / scaleX)}, ${Math.round(y / scaleY)}),`
-    ).join('\n');
-    console.log('waypoints: [\n' + lines + '\n]');
+    // Dump EVERY defined path so the export can be pasted back without losing any.
+    // The editor only edits the primary (paths[0]); secondary paths echo back their
+    // original coordinates unchanged.
+    const pathBlocks = this.paths.map((path, p) => {
+      const label = p === 0 ? 'Primary path' : `Secondary path ${p}`;
+      const lines = path.map(({ x, y }) =>
+        `      bgPt(${Math.round(x / scaleX)}, ${Math.round(y / scaleY)}),`
+      ).join('\n');
+      return `    // ${label}\n    [\n${lines}\n    ],`;
+    }).join('\n');
+    console.log('paths: [\n' + pathBlocks + '\n    ],');
   }
 
   _logZones() {
@@ -1431,8 +1463,13 @@ export default class LevelScene extends Phaser.Scene {
 
   spawnEnemy(type) {
     const typeDef = ENEMY_TYPES[type];
-    const startX  = this.waypoints[0].x;
-    const startY  = this.waypoints[0].y;
+    // Assign this enemy a path: Easy always path 0; Medium spreads spawns randomly
+    // across all active paths. Each enemy carries its own `waypoints` so movement,
+    // escape and tower lead-targeting follow its route independently.
+    const pathIdx   = pickPathIndex(this._activePathCount);
+    const waypoints = this.paths[pathIdx];
+    const startX    = waypoints[0].x;
+    const startY    = waypoints[0].y;
 
     const sprite = this.add.sprite(startX, startY, typeDef.key);
     sprite.setScale(typeDef.displayScale);
@@ -1444,6 +1481,7 @@ export default class LevelScene extends Phaser.Scene {
       id: this.enemyId++,
       type: typeDef.key,
       sprite,
+      waypoints,           // this enemy's assigned path (one of this.paths)
       waypointIdx: 0,
       x: startX,
       y: startY,
@@ -1714,8 +1752,9 @@ export default class LevelScene extends Phaser.Scene {
     }
     let remaining = enemy.speed * seconds;
     let px = enemy.x, py = enemy.y;
-    for (let wi = enemy.waypointIdx; wi < this.waypoints.length && remaining > 0; wi++) {
-      const wp   = this.waypoints[wi];
+    const waypoints = enemy.waypoints ?? this.waypoints;
+    for (let wi = enemy.waypointIdx; wi < waypoints.length && remaining > 0; wi++) {
+      const wp   = waypoints[wi];
       const wdx  = wp.x - px;
       const wdy  = wp.y - py;
       const wlen = Math.sqrt(wdx * wdx + wdy * wdy);
@@ -2134,7 +2173,8 @@ export default class LevelScene extends Phaser.Scene {
 
       e.firing = false;   // reached the movement section — no longer parked to shoot
 
-      const target = this.waypoints[e.waypointIdx];
+      const path   = e.waypoints ?? this.waypoints;   // this enemy's assigned route
+      const target = path[e.waypointIdx];
       if (!target) { this._enemyEscaped(e, i); continue; }
 
       const dx   = target.x - e.x;
@@ -2143,7 +2183,7 @@ export default class LevelScene extends Phaser.Scene {
 
       if (dist < 4) {
         e.waypointIdx++;
-        if (e.waypointIdx >= this.waypoints.length) {
+        if (e.waypointIdx >= path.length) {
           this._enemyEscaped(e, i);
           continue;
         }

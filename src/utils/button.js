@@ -49,11 +49,13 @@ export function makeButton(scene, bx0, by0, label, style, depth, onPress, opts =
   // Hit area covers the FULL padded button rect, not just the text glyphs — so
   // hovering/clicking the button edges still registers (otherwise the padding
   // region falls through to the scene, e.g. reading as a tower placement).
-  const hit = scene.add.zone(0, 0, tw, th).setDepth(depth + 2);
+  // Origin is fixed to (0,0) BEFORE setInteractive so the input hit rectangle aligns
+  // with the drawn rect; positionHit then only moves it (size/origin stay constant).
+  const hit = scene.add.zone(0, 0, tw, th).setOrigin(0, 0).setDepth(depth + 2);
   const positionHit = () => {
     const ox = origin === 0.5 ? -tw / 2 : 0;
     const oy = origin === 0.5 ? -th / 2 : 0;
-    hit.setPosition(x + ox, y + oy).setOrigin(0, 0).setSize(tw, th);
+    hit.setPosition(x + ox, y + oy);
   };
   positionHit();
   hit.setInteractive({ useHandCursor: true });
