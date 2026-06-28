@@ -1,2 +1,7 @@
 .DS_Store
 node_modules/
+
+# Local-only scratch / unused source assets — not part of the build
+.claude/
+assets/levels/unused/
+assets/towers/unused/

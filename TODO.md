@@ -1,11 +1,8 @@
 # TODO
 
-## Display
-- [ ] **(Priority)** Encapsulate the whole display into a single canvas that maximises to the display device. Today the canvas is a fixed 900×560 (`CANVAS_W`/`CANVAS_H` in `constants.js`, no Phaser Scale mode) and the HUD / info bar / status bar are separate HTML DOM elements in `index.html` stacked around `#game-container`. Goal: one responsive canvas that scales to the viewport (likely `Phaser.Scale.FIT` + `autoCenter`), with the HUD/info/status either drawn inside the canvas or scaled with it. Watch: pointer coords (input math assumes native 900×560 — must map screen→canvas space), DEV_MODE editor coord export, and crisp scaling on hi-DPI.
-
 ## Levels
 - [ ] Add additional levels (Level 3 onwards)
-- [ ] Multi-path support — engine + editor done (Easy = path 0; Medium spreads spawns across all `level.paths`; editor edits every path; export dumps all paths). REMAINING: supply secondary path waypoints for Mudflats and Stoneback Ridge (Goblin Warren done).
+- [ ] Multi-path — add secondary path waypoints for Mudflats & Stoneback Ridge (engine + editor done)
 - [ ] Editor: "add new path" action — currently new paths are added by hand in `src/data/levels.js`; editor can only edit/move/insert/delete on existing paths.
 - [ ] Promote difficulty from per-level (current) to a single campaign-wide setting that cascades to all levels
 - [ ] Add Veteran difficulty + per-difficulty stat scaling (HP/count/gold) — config in `src/logic/difficulty.js` is structured for it
@@ -24,6 +21,9 @@
 
 ## Completed
 
+### Display
+- [x] Single responsive canvas (`Scale.FIT` + `autoCenter`), in-canvas HUD (`src/utils/hud.js` `HudOverlay`), DOM HUD removed
+
 ### Levels
 - [x] Kingdom map / campaign screen (port from Sylvan Defenders)
 - [x] Level start / between-wave enemy preview card (with ✕ close button)
@@ -37,7 +37,7 @@
 - [x] Multi-path support — `paths[]` data model; Easy uses path 0, Medium spreads spawns across all paths; per-enemy assigned path; editor edits every path and exports all paths
 
 ### Turrets
-- [x] User-defined rally points for Barracks defenders — "Set Rally Point" button enters drag-to-place mode; anchor clamped to tower range and rejected on placement zones; defenders spread in an even iso-ring around the anchor (Model C), with "who reacts first" decided at runtime by proximity (correct for any path count/direction)
+- [x] User-defined Barracks rally points (drag-to-place, range/zone-clamped, even iso-ring, runtime proximity ordering)
 - [x] Set up sprites for Arrow tower and bullets
 - [x] Restrict placement of turrets (only allow on valid zones)
 - [x] Tower sell mechanic (50% refund)
@@ -63,5 +63,5 @@
 - [x] Keyboard nav on Campaign map Begin popup, Restart confirm, Sell popup, Game Over overlay
 
 ### Code quality
-- [x] Level-index getter refactor (`_playingConfig`/`_playingUnlocks`/`_nextUnlocks`/`_frontierUnlocks`/`_playingCampaign`) — closed the recurring `_playingLevel`-vs-`_frontierLevel` bug class (fixed Level 1 offering all towers)
-- [x] LevelScene refactor pass — pure logic extracted & tested (`arcPosition`, `defenderShouldDropTarget`, `withinMelee`), `BULLET_KINDS` dispatch registry, shared `_destroyPanelObjects`/`_placeSprite`/`titleCaseKey` helpers, documented depth bands. Mixin/controller split deliberately skipped (high churn, no real decoupling). 93 tests.
+- [x] Level-index getter refactor — closed the `_playingLevel`-vs-`_frontierLevel` bug class
+- [x] LevelScene refactor pass — pure logic extracted & tested, `BULLET_KINDS` registry, shared helpers (93 tests)
