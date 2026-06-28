@@ -37,7 +37,7 @@
 - [x] Multi-path support — `paths[]` data model; Easy uses path 0, Medium spreads spawns across all paths; per-enemy assigned path; editor edits every path and exports all paths
 
 ### Turrets
-- [x] User-defined rally points for Barracks defenders — "Set Rally Point" button in the Barracks popup enters drag-to-place mode; anchor clamped to tower range; non-engaged defenders move immediately
+- [x] User-defined rally points for Barracks defenders — "Set Rally Point" button enters drag-to-place mode; anchor clamped to tower range and rejected on placement zones; defenders spread in an even iso-ring around the anchor (Model C), with "who reacts first" decided at runtime by proximity (correct for any path count/direction)
 - [x] Set up sprites for Arrow tower and bullets
 - [x] Restrict placement of turrets (only allow on valid zones)
 - [x] Tower sell mechanic (50% refund)
@@ -61,3 +61,7 @@
 - [x] Set up DEV_MODE flag enabled at run-time for easier debugging
 - [x] Refactored pop-up screens, enabled FocusGroup keyboard navigation (Enter/Space confirm, Left/Right/Tab cycle, Escape dismiss)
 - [x] Keyboard nav on Campaign map Begin popup, Restart confirm, Sell popup, Game Over overlay
+
+### Code quality
+- [x] Level-index getter refactor (`_playingConfig`/`_playingUnlocks`/`_nextUnlocks`/`_frontierUnlocks`/`_playingCampaign`) — closed the recurring `_playingLevel`-vs-`_frontierLevel` bug class (fixed Level 1 offering all towers)
+- [x] LevelScene refactor pass — pure logic extracted & tested (`arcPosition`, `defenderShouldDropTarget`, `withinMelee`), `BULLET_KINDS` dispatch registry, shared `_destroyPanelObjects`/`_placeSprite`/`titleCaseKey` helpers, documented depth bands. Mixin/controller split deliberately skipped (high churn, no real decoupling). 93 tests.
