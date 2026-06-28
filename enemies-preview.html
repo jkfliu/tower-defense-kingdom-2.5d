@@ -99,6 +99,27 @@ const ENEMIES = [
       { name: 'Death',   frames: 4 },
     ],
   },
+  {
+    // 10-row sheet. Rows are listed explicitly (via `row`) because two rows are
+    // standalone projectile FX, not character poses — they don't follow on
+    // consecutively. The game only uses Idle, Walk, Attack1 (melee) and Heal1
+    // (local channel); the projectile attack/heal rows are previewed but reserved.
+    name: 'Evil Priest',
+    src: 'assets/enemies/EvilPriest-shadow.png',
+    sheetCols: 9,
+    anims: [
+      { name: 'Idle',                 frames: 6, row: 0 },
+      { name: 'Walk',                 frames: 8, row: 1 },
+      { name: 'Attack1 (melee)',      frames: 9, row: 2 },
+      { name: 'Attack2 (projectile)', frames: 9, row: 3 },
+      { name: 'Attack2 FX',           frames: 5, row: 4 },
+      { name: 'Heal1 (local)',        frames: 6, row: 5 },
+      { name: 'Heal2 (projectile)',   frames: 6, row: 6 },
+      { name: 'Heal2 FX',             frames: 4, row: 7 },
+      { name: 'Hurt',                 frames: 4, row: 8 },
+      { name: 'Death',                frames: 4, row: 9 },
+    ],
+  },
 ];
 
 let fps = 8;
@@ -132,8 +153,10 @@ for (const enemy of ENEMIES) {
   img.onload = () => {
     let startFrame = 0;
     for (const anim of enemy.anims) {
-      anim.startFrame = startFrame;
-      startFrame += enemy.sheetCols; // each row occupies sheetCols slots
+      // Honour an explicit `row` (sheets with FX-only gaps); otherwise rows are
+      // assumed consecutive and we auto-advance one row per anim.
+      anim.startFrame = anim.row != null ? anim.row * enemy.sheetCols : startFrame;
+      startFrame = anim.startFrame + enemy.sheetCols;
 
       const block = document.createElement('div');
       block.className = 'anim-block';

@@ -92,6 +92,35 @@ export const ENEMY_TYPES = {
       { key: 'death',   row: 4, frames: 4, frameRate: 6,  repeat: 0  },
     ],
   },
+  evilPriest: {
+    key: 'evilPriest',
+    spritesheet: 'assets/enemies/EvilPriest-shadow.png',
+    frameWidth: 100,
+    frameHeight: 100,
+    sheetCols: 9,
+    displayScale: 1.8,
+    speed: { base: 45, variance: 15 },   // slow, deliberate
+    hp: 180,
+    goldReward: 30,                       // a priority kill — denies healing
+    meleeDamage: 14,
+    attackRate: 1100,                     // ms between melee swings
+    // Support: when NOT in melee, halts to channel a heal pulse that mends every
+    // living enemy (itself included) inside healRadius, then resumes walking.
+    attackType: 'support',
+    healRadius: 150,    // isometric ellipse (2:1), like the archer's range
+    healAmount: 30,     // HP restored per ally per pulse (capped at maxHp)
+    healRate: 2500,     // ms between heal channels
+    // Sheet has 10 rows; rows 3/4 (projectile attack + FX) and 6/7 (projectile heal
+    // + FX) are reserved for later. We use the local-cast rows for now.
+    animations: [
+      { key: 'idle',    row: 0, frames: 6, frameRate: 8,  repeat: -1 },
+      { key: 'walk',    row: 1, frames: 8, frameRate: 10, repeat: -1 },
+      { key: 'attack1', row: 2, frames: 9, frameRate: 12, repeat: 0  },  // local melee
+      { key: 'heal1',   row: 5, frames: 6, frameRate: 10, repeat: 0  },  // local heal channel
+      { key: 'hurt',    row: 8, frames: 4, frameRate: 10, repeat: 0  },
+      { key: 'death',   row: 9, frames: 4, frameRate: 6,  repeat: 0  },
+    ],
+  },
   slime: {
     key: 'slime',
     spritesheet: 'assets/enemies/Slime-shadow.png',

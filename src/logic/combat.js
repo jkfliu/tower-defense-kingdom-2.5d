@@ -156,6 +156,23 @@ export function nearestDefenderInRange(pos, defenders, range) {
   return best;
 }
 
+// All living enemies whose centers fall inside `origin`'s isometric ellipse (2:1,
+// same convention as ranges). Used by a Priest's heal pulse to collect mend targets.
+// The origin enemy is included if it's in the list (the Priest heals itself too).
+export function enemiesInRadius(origin, enemies, radius) {
+  const out = [];
+  for (const e of enemies) {
+    if (e.dying) continue;
+    if (inEllipse(e.x - origin.x, e.y - origin.y, radius)) out.push(e);
+  }
+  return out;
+}
+
+// Heal `hp` by `healAmount`, never exceeding `maxHp` (no overheal).
+export function applyHeal(hp, healAmount, maxHp) {
+  return Math.min(maxHp, hp + healAmount);
+}
+
 // Whether a dodgeable enemy arrow connects on arrival: the target must still be
 // alive and within the isometric hit ellipse (2:1) of where the arrow landed. A
 // target that died or walked away during the arrow's flight whiffs.
