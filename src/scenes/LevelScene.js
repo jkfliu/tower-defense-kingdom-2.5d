@@ -167,6 +167,18 @@ export default class LevelScene extends Phaser.Scene {
     this._overButton     = false;
     this._restartConfirm = null;
 
+    // Depth bands (back → front), so the literal setDepth values across this file
+    // read against a documented stacking order:
+    //   0      background image
+    //   10     debug graphics
+    //   600    bullets / projectiles, 650 explosions
+    //   700    entity graphics (HP bars etc.), <y> per-sprite (enemies/defenders by y)
+    //   800    placement preview
+    //   900–902  HUD buttons + enemy/unlock preview cards
+    //   1000–1002 tower placement / sell popups
+    //   1100   pause + editor labels
+    //   1200–1302 level overlay (gameover/victory/between) + its unlock rows
+    //   1400–1401 restart-confirm modal (top-most)
     this.debugGraphics   = this.add.graphics().setDepth(10);
     this.entityGraphics  = this.add.graphics().setDepth(700);
     this.previewGraphics = this.add.graphics().setDepth(800);
