@@ -6,7 +6,7 @@ import { DEFENDER_TYPE, DEFENDER_TYPES, defenderForLevel } from '../data/defende
 import {
   inEllipse, nearestEnemyInRange, pickDefenderTarget, stepToward,
   closestPointOnPath, pointAlongPath, pathProgress, tickCooldown,
-  arrowHits, nearestDefenderInRange,
+  arrowHits, nearestDefenderInRange, enemiesInRadius, applyHeal,
 } from '../logic/combat.js';
 import { nextUpgrade, sellRefund, upgradeCost } from '../logic/upgrades.js';
 import { makeButton } from '../utils/button.js';
@@ -15,6 +15,11 @@ import { soundManager } from '../utils/sound.js';
 
 const TOWER_SELL_HIT_R  = 28;
 const WP_HIT_R          = 30;
+
+// Title-case an enemy key for display: 'skeletonArcher' → 'Skeleton Archer',
+// 'evilPriest' → 'Evil Priest'. Mirrors dictionary.html's label logic.
+const enemyLabel = key =>
+  key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
 
 // First frame of the Defender's walk row — held as a stand-in "idle" pose, since
 // the spritesheet has no idle row. Derived once from the static data.
@@ -205,6 +210,11 @@ export default class LevelScene extends Phaser.Scene {
         this.previewGraphics.clear();
         return;
       }
+
+      // Over a HUD button (e.g. Start Wave): suppress the placement ghost so hovering
+      // the button doesn't read as placing a tower. onHover already cleared it once;
+      // this keeps it cleared for every move while the cursor stays on the button.
+      if (this._overButton) { this.previewGraphics.clear(); return; }
 
       if (!this._drag) {
         if (this._towerPopup) this._drawPlacementPreview(this._towerPopup.x, this._towerPopup.y);
@@ -539,7 +549,7 @@ export default class LevelScene extends Phaser.Scene {
           const icon = this.add.sprite(iconX, rowY, def.key)
             .setScale(def.displayScale * 0.16).setDepth(1302);
           icon.play(`${def.key}_walk`);
-          const name = key.charAt(0).toUpperCase() + key.slice(1);
+          const name = enemyLabel(key);
           const label = this.add.text(labelX, rowY, `${name} (Enemy)`, {
             fontSize: '12px', fontFamily: 'Cinzel', color: '#ccffcc',
           }).setOrigin(0, 0.5).setDepth(1302);
@@ -655,7 +665,7 @@ export default class LevelScene extends Phaser.Scene {
       icon.play(`${def.key}_walk`);
       objects.push(icon);
 
-      const label = this.add.text(cx + pad + iconSize + 8, ry + 6, def.key.charAt(0).toUpperCase() + def.key.slice(1), {
+      const label = this.add.text(cx + pad + iconSize + 8, ry + 6, enemyLabel(def.key), {
         fontSize: '11px', fontFamily: 'Cinzel', color: '#cccccc',
       }).setDepth(902);
       objects.push(label);
@@ -742,7 +752,7 @@ export default class LevelScene extends Phaser.Scene {
           .setScale(def.displayScale * 0.20).setDepth(902);
         icon.play(`${def.key}_walk`);
         objects.push(icon);
-        const label = this.add.text(cx + pad + iconSize + 8, ry + 4, key.charAt(0).toUpperCase() + key.slice(1), {
+        const label = this.add.text(cx + pad + iconSize + 8, ry + 4, enemyLabel(key), {
           fontSize: '11px', fontFamily: 'Cinzel', color: '#ccffcc',
         }).setDepth(902);
         objects.push(label);
@@ -1065,25 +1075,33 @@ export default class LevelScene extends Phaser.Scene {
     focusGroup.destroy();
     gfx.destroy();
     msg.destroy();
-    yesBtn._gfx.destroy(); yesBtn._txt.destroy();
-    noBtn._gfx.destroy();  noBtn._txt.destroy();
+    yesBtn._gfx.destroy(); yesBtn._txt.destroy(); yesBtn._hit.destroy();
+    noBtn._gfx.destroy();  noBtn._txt.destroy();  noBtn._hit.destroy();
     this._restartConfirm = null;
   }
 
   // ─── Button factory ───────────────────────────────────────────────────────
 
   _makeButton(bx0, by0, label, style, depth, onPress, opts = {}) {
-    return makeButton(this, bx0, by0, label, style, depth, onPress, {
+    const btn = makeButton(this, bx0, by0, label, style, depth, onPress, {
       ...opts,
       onHover: () => { this._overButton = true;  this.previewGraphics.clear(); this._setStatusBar(''); },
       onOut:   () => { this._overButton = false; },
     });
+    // Hiding a button out from under the cursor (e.g. Start Wave on click) means its
+    // pointerout never fires — clear the over-button guard so tower placement isn't
+    // left permanently blocked.
+    const baseSetVisible = btn.setVisible.bind(btn);
+    btn.setVisible = (v) => { if (!v) this._overButton = false; return baseSetVisible(v); };
+    return btn;
   }
 
   // ─── Tower placement ──────────────────────────────────────────────────────
 
   onTileClick(pointer) {
     if (this.phase === 'gameover' || this.phase === 'victory') return;
+    // Over a HUD button — let the button handle its own click, don't place a tower.
+    if (this._overButton) return;
 
     // Close existing popup if open
     if (this._towerPopup) {
@@ -1253,7 +1271,7 @@ export default class LevelScene extends Phaser.Scene {
     if (!this._towerPopup) return;
     this._towerPopup.focusGroup?.destroy();
     for (const obj of this._towerPopup.destroyables) {
-      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); }
+      if (obj?._gfx) { obj._gfx.destroy(); obj._txt.destroy(); obj._hit?.destroy(); }
       else obj?.destroy();
     }
     this._towerPopup = null;
@@ -1433,7 +1451,8 @@ export default class LevelScene extends Phaser.Scene {
       hp: typeDef.hp,
       maxHp: typeDef.hp,
       attackCooldown: 0,   // ranged enemies: ms until the next arrow may be loosed
-      firing: false,       // ranged enemies: parked to shoot (towers won't lead the shot)
+      healCooldown: 0,     // support enemies (Priest): ms until the next heal channel
+      firing: false,       // ranged/support enemies: parked to act (towers won't lead the shot)
       hurting: false,      // mid hurt-flinch — don't let other anims stomp it
       dying: false,
     });
@@ -1902,6 +1921,46 @@ export default class LevelScene extends Phaser.Scene {
     sprite.once('animationcomplete', () => sprite.destroy());
   }
 
+  // A Priest channels a heal pulse: it plays its heal pose, then mends every living
+  // enemy (itself included) inside healRadius up to maxHp. Each healed ally flashes
+  // green and an expanding ring marks the pulse origin. Pure HP math lives in combat.js.
+  _channelHeal(enemy, def) {
+    if (!enemy.hurting) enemy.sprite.play(`${enemy.type}_heal1`, true);
+
+    const allies = enemiesInRadius(enemy, this.enemies, def.healRadius);
+    for (const ally of allies) {
+      if (ally.hp >= ally.maxHp) continue;   // already full — no flash, no work
+      ally.hp = applyHeal(ally.hp, def.healAmount, ally.maxHp);
+      this._flashHeal(ally.sprite);
+    }
+    this._spawnHealRing(enemy.x, enemy.y, def.healRadius);
+  }
+
+  // Brief green tint pulse on a healed sprite (cleared after the tween).
+  _flashHeal(sprite) {
+    sprite.setTint(0x66ff88);
+    this.tweens.addCounter({
+      from: 0, to: 1, duration: 350,
+      onComplete: () => sprite.clearTint(),
+    });
+  }
+
+  // A short expanding/fading green ring (2:1 iso ellipse) at the pulse origin.
+  _spawnHealRing(x, y, radius) {
+    const ring = this.add.ellipse(x, y, 20, 10, 0x66ff88, 0)
+      .setStrokeStyle(2, 0x66ff88, 0.9)
+      .setDepth(y - 1);
+    this.tweens.add({
+      targets: ring,
+      scaleX: (radius * 2) / 20,
+      scaleY: (radius * 2) / 20,
+      alpha: 0,
+      duration: 500,
+      ease: 'Quad.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
   _checkWaveComplete() {
     if (this.phase !== 'wave') return;
     if (this.spawnedCount < this.enemiesPerWave) return;
@@ -2014,6 +2073,40 @@ export default class LevelScene extends Phaser.Scene {
           e.sprite.setDepth(e.y);
           continue;
         }
+      }
+
+      // Support enemies (Priest) stop to channel a heal pulse, but only when BOTH:
+      //   1) not engaged in melee — an ENGAGED blocker means it's fighting, so it
+      //      skips healing and falls through to the melee block below; and
+      //   2) a wounded ally is actually nearby — at least one living enemy (itself
+      //      included) inside healRadius is below max HP. With nobody to mend it keeps
+      //      marching rather than halting pointlessly.
+      // While channelling, each pulse mends every living enemy in range up to maxHp;
+      // `firing` parks it so towers don't lead the shot.
+      const engagedInMelee = e.blocked && e.blocker && !e.blocker.dying && e.blocker.state === 'ENGAGED';
+      if (def.attackType === 'support' && !engagedInMelee) {
+        const wounded = enemiesInRadius(e, this.enemies, def.healRadius).some(a => a.hp < a.maxHp);
+        if (wounded) {
+          e.firing = true;   // park while a heal is warranted
+          e.healCooldown = tickCooldown(e.healCooldown ?? 0, dt * 1000);
+          if (e.healCooldown <= 0) {
+            e.healCooldown = def.healRate ?? 2500;
+            this._channelHeal(e, def);   // plays heal1 + applies the pulse
+          } else if (!e.hurting) {
+            // Parked, waiting out the cooldown: settle to idle unless a heal pose or
+            // flinch is still playing, so the Priest doesn't march in place.
+            const anims = e.sprite.anims;
+            const busy = anims.isPlaying && anims.currentAnim?.key === `${e.type}_heal1`;
+            if (!busy && anims.currentAnim?.key !== `${e.type}_idle`) {
+              e.sprite.play(`${e.type}_idle`);
+            }
+          }
+          e.sprite.setPosition(e.x, e.y);
+          e.sprite.setDepth(e.y);
+          continue;
+        }
+        // No wounded allies in range — resume marching, ready to channel on demand.
+        e.firing = false;
       }
 
       // Blocked by a Defender: halt on the path and trade blows instead of moving.

@@ -41,9 +41,14 @@
       width: 150px;
       text-align: center;
     }
+    /* Reserve room for up to two lines so single- and double-line names (e.g.
+       "Orc" vs "Skeleton Archer") keep the sprite/stats aligned across cards. */
+    .enemy-card h3 { min-height: 2.6em; display: flex; align-items: center; justify-content: center; }
     .enemy-card canvas { display: block; margin: 0 auto; border-radius: 4px; background: #1a2a1a; }
     .enemy-stats { font-size: 11px; color: #666; margin-top: 10px; line-height: 1.8; text-align: left; }
     .enemy-stats span { color: #e8d0a0; }
+    /* Section divider inside the stat block (Basic / Special / Unlocks). */
+    .enemy-stats hr { border: none; border-top: 1px solid #2a2a4a; margin: 7px 0; }
 
     .bullet-dot {
       display: inline-block;
@@ -119,7 +124,9 @@ function enemyUnlockLabel(enemyKey) {
   return idx === -1 ? null : `Level ${idx + 1} — ${CAMPAIGN_LEVELS[idx].name}`;
 }
 
-const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+// Title-case a camelCase enemy key: 'skeletonArcher' → 'Skeleton Archer',
+// 'evilPriest' → 'Evil Priest'.
+const cap = s => s.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
 const ENEMY_TYPES = Object.values(GAME_ENEMIES).map(e => {
   const walk = e.animations.find(a => a.key === 'walk') ?? { row: 1, frames: 1 };
   return { ...e, label: cap(e.key), walkRow: walk.row, walkFrames: walk.frames };
@@ -303,11 +310,33 @@ for (const e of sortedEnemies) {
   const stats = document.createElement('div');
   stats.className = 'enemy-stats';
   const unlockLabel = enemyUnlockLabel(e.key);
-  stats.innerHTML = `
+
+  // Basic — always shown.
+  const basic = `
     HP: <span>${e.hp}</span><br>
     Speed: <span>${e.speed.base}–${e.speed.base + e.speed.variance}px/s</span><br>
-    Gold: <span>${e.goldReward}g</span>${e.damageResist ? '<br>' + Object.entries(e.damageResist).map(([k,v]) => `Resist Magic: <span>${Math.round((1-v)*100)}%</span>`).join('<br>') : ''}${unlockLabel ? `<br>Unlocks at: <span>${unlockLabel}</span>` : ''}
-  `;
+    Gold: <span>${e.goldReward}g</span>`;
+
+  // Special — any standout traits (resistances, ranged attack, healing). Only the
+  // ones an enemy actually has appear; the whole section is omitted if there are none.
+  const specials = [];
+  if (e.damageResist) {
+    for (const [, v] of Object.entries(e.damageResist)) {
+      specials.push(`Resists magic: <span>${Math.round((1 - v) * 100)}%</span>`);
+    }
+  }
+  if (e.attackType === 'ranged') {
+    specials.push(`Shoots arrows: <span>${e.rangedDamage} dmg</span>`);
+  }
+  if (e.attackType === 'support') {
+    specials.push(`Heals troops: <span>+${e.healAmount} HP</span> every <span>${(e.healRate / 1000).toFixed(1)}s</span>`);
+  }
+  const special = specials.length ? `<hr>${specials.join('<br>')}` : '';
+
+  // Unlocks — only for enemies tied to a level unlock.
+  const unlocks = unlockLabel ? `<hr>Unlocks at: <span>${unlockLabel}</span>` : '';
+
+  stats.innerHTML = basic + special + unlocks;
   card.appendChild(stats);
 
   enemiesGrid.appendChild(card);

@@ -25,9 +25,9 @@ export class FocusGroup {
     kb.on('keydown-TAB',       this._onTab);
     kb.on('keydown-ESCAPE',    this._onEscKey);
 
-    // Wire mouse hover → keyboard focus sync
+    // Wire mouse hover → keyboard focus sync (the interactive hit zone, not the text)
     buttons.forEach(({ btn }, i) => {
-      btn._txt.on('pointerover', () => this.focus(i));
+      btn._hit.on('pointerover', () => this.focus(i));
     });
 
     // Start with first button focused

@@ -11,6 +11,8 @@ import {
   resolveMelee,
   arrowHits,
   nearestDefenderInRange,
+  enemiesInRadius,
+  applyHeal,
 } from '../src/logic/combat.js';
 
 describe('inEllipse', () => {
@@ -303,5 +305,58 @@ describe('nearestDefenderInRange', () => {
     expect(nearestDefenderInRange(pos, [{ x: 0, y: 120, dying: false }], 150)).toBe(null);
     // y=70 is within the vertical semi-axis → in range.
     expect(nearestDefenderInRange(pos, [{ x: 0, y: 70, dying: false }], 150)).not.toBe(null);
+  });
+});
+
+describe('enemiesInRadius', () => {
+  // A Priest's heal pulse collects every living enemy whose center falls inside its
+  // isometric heal ellipse (2:1, same convention as ranges). Used to pick who to mend.
+  const origin = { x: 0, y: 0 };
+
+  it('returns an empty array when nobody is in range', () => {
+    expect(enemiesInRadius(origin, [{ x: 300, y: 0, dying: false }], 140)).toEqual([]);
+  });
+
+  it('collects all living enemies inside the ellipse', () => {
+    const a = { x: 40, y: 0, dying: false };
+    const b = { x: 0, y: 60, dying: false };
+    const out = { x: 300, y: 0, dying: false };
+    const result = enemiesInRadius(origin, [a, b, out], 140);
+    expect(result).toContain(a);
+    expect(result).toContain(b);
+    expect(result).not.toContain(out);
+  });
+
+  it('skips dying enemies', () => {
+    const dying = { x: 30, y: 0, dying: true };
+    const alive = { x: 30, y: 0, dying: false };
+    const result = enemiesInRadius(origin, [dying, alive], 140);
+    expect(result).toContain(alive);
+    expect(result).not.toContain(dying);
+  });
+
+  it('includes the origin enemy itself when present in the list (Priest heals self)', () => {
+    const self = { x: 0, y: 0, dying: false };
+    expect(enemiesInRadius(self, [self], 140)).toContain(self);
+  });
+
+  it('uses the 2:1 ellipse — vertical reach is half the radius', () => {
+    // y=120 sits inside a 140px circle but outside the ellipse (vert semi-axis 70).
+    expect(enemiesInRadius(origin, [{ x: 0, y: 120, dying: false }], 140)).toEqual([]);
+    expect(enemiesInRadius(origin, [{ x: 0, y: 60, dying: false }], 140)).toHaveLength(1);
+  });
+});
+
+describe('applyHeal', () => {
+  it('adds the heal amount to current hp', () => {
+    expect(applyHeal(50, 25, 100)).toBe(75);
+  });
+
+  it('never overheals past maxHp', () => {
+    expect(applyHeal(90, 25, 100)).toBe(100);
+  });
+
+  it('is a no-op effect when already at full', () => {
+    expect(applyHeal(100, 25, 100)).toBe(100);
   });
 });
