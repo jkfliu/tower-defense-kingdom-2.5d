@@ -13,6 +13,7 @@ import { activePathCount, pickPathIndex } from '../logic/difficulty.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
 import { titleCaseKey } from '../utils/text.js';
+import { saveProgress } from '../utils/storage.js';
 import { HudOverlay } from '../utils/hud.js';
 import { soundManager } from '../utils/sound.js';
 
@@ -527,11 +528,15 @@ export default class LevelScene extends Phaser.Scene {
       && this._playingLevel === this._frontierLevel
       && this._frontierLevel < lastLevel;
     const nextLevel = wonFrontier ? this._frontierLevel + 1 : this._frontierLevel;
+    const campaignScore = this.phase === 'gameover' ? 0 : this.score;
+    // Autosave commit point: a level has ended and the frontier/score are settled,
+    // so this is the state worth resuming from on the next page load.
+    saveProgress({ currentLevel: nextLevel, campaignScore, difficulty: this.difficulty });
     this.scene.start('CampaignMapScene', {
       currentLevel:       nextLevel,
       justCompletedLevel: wonFrontier ? this._playingLevel : -1,
       reveal:             wonFrontier,
-      campaignScore:      this.phase === 'gameover' ? 0 : this.score,
+      campaignScore,
     });
   }
 
