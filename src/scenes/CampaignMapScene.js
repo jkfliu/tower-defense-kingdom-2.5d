@@ -2,6 +2,7 @@ import { CANVAS_W, CANVAS_H } from '../constants.js';
 import { CAMPAIGN_LEVELS, LEVELS } from '../data/levels.js';
 import { makeButton } from '../utils/button.js';
 import { FocusGroup } from '../utils/FocusGroup.js';
+import { loadProgress, saveProgress, exportProgressFile, pickProgressFile } from '../utils/storage.js';
 
 const MAP_IMG_W = 1124;
 const MAP_IMG_H = 1124;
@@ -15,10 +16,13 @@ export default class CampaignMapScene extends Phaser.Scene {
   }
 
   create(data = {}) {
-    // Campaign progression state (persisted via scene data passing)
-    this.currentLevel       = data.currentLevel       ?? 0;
+    // Campaign progression state. Within a session it arrives via scene data
+    // passing; on a cold page load there is none, so we fall back to the
+    // localStorage autosave (a fresh game if there's nothing stored).
+    const saved = loadProgress(CAMPAIGN_LEVELS.length - 1);
+    this.currentLevel       = data.currentLevel       ?? saved.currentLevel;
     this.justCompletedLevel = data.justCompletedLevel ?? -1;
-    this.campaignScore      = data.campaignScore      ?? 0;
+    this.campaignScore      = data.campaignScore      ?? saved.campaignScore;
     this.revealProgress     = 0;
     this._revealing         = data.reveal             ?? false;
 
@@ -68,7 +72,9 @@ export default class CampaignMapScene extends Phaser.Scene {
     // entry here — layout, drawing and hit-testing all derive from this list.
     // `minPaths` gates an option: it's disabled on levels with fewer paths (e.g.
     // Medium needs a second route to do anything, so it's greyed on single-path levels).
-    this._selectedDifficulty = 'easy';
+    // Seeded from the save so a persisted choice survives a reload; still
+    // per-level-selectable in the popup until difficulty becomes campaign-wide.
+    this._selectedDifficulty = saved.difficulty;
     this._diffOptions = [
       { key: 'easy',   label: 'Easy',   minPaths: 1 },
       { key: 'medium', label: 'Medium', minPaths: 2 },
@@ -122,6 +128,39 @@ export default class CampaignMapScene extends Phaser.Scene {
     // as a trusted gesture for window.open; pointerdown gets popup-blocked on touch.
     dictBtn.on('pointerup', () => { window.open('dictionary.html', '_blank'); });
 
+    // Save-file menu — the portability layer over the localStorage autosave, for
+    // carrying progress between browsers/devices. Sits left of the '?' as a
+    // matching icon button; the two form the map's utility cluster.
+    // Emoji rather than a tinted glyph: no Cinzel character reads as "save", and
+    // a colour emoji ignores setStyle colour, so it hovers via alpha instead.
+    this._saveIcon = this.add.text(CANVAS_W - 44, 14, '💾', {
+      fontSize: '18px', fontFamily: 'Cinzel',
+    }).setOrigin(1, 0).setDepth(15).setAlpha(0.65).setInteractive({ useHandCursor: true });
+    this._saveIcon.on('pointerover', () => this._saveIcon.setAlpha(1));
+    this._saveIcon.on('pointerout',  () => this._saveIcon.setAlpha(this._saveMenuOpen ? 1 : 0.65));
+    this._saveIcon.on('pointerup',   () => this._toggleSaveMenu());
+
+    // Dropdown: drawn on its own layer above the map (but below the level popup's
+    // 100+), with items hit-tested manually in _onPointerUp — the same approach the
+    // popup's difficulty toggle uses, since Graphics has no built-in input area.
+    this._saveMenuOpen  = false;
+    this._saveMenuGfx   = this.add.graphics().setDepth(20);
+    this._saveMenuItems = [
+      { key: 'export', label: 'Export Save' },
+      { key: 'import', label: 'Import Save' },
+    ];
+    this._saveMenuTexts = this._saveMenuItems.map(() => this.add.text(0, 0, '', {
+      fontSize: '13px', fontFamily: 'Cinzel', color: '#e8d8a0',
+    }).setOrigin(0, 0.5).setDepth(21).setVisible(false));
+    this._saveMenuRects = []; // { key, x, y, w, h } per item, set in _openSaveMenu
+
+    // Transient feedback for export/import (e.g. "Save exported.", "Not a valid
+    // save file."). Fades on a timer; see _flashSaveMsg.
+    this._saveMsg = this.add.text(CANVAS_W - 14, 40, '', {
+      fontSize: '12px', fontFamily: 'Cinzel', color: '#e8d8a0',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(1, 0).setDepth(21).setVisible(false);
+
     // Input
     this.input.on('pointerdown', (p) => this._onPointerDown(p));
     this.input.on('pointermove', (p) => this._onPointerMove(p));
@@ -129,12 +168,13 @@ export default class CampaignMapScene extends Phaser.Scene {
     this.input.on('wheel',       (p, _dx, _dy, deltaY) => this._onWheel(p, deltaY));
 
     const onConfirmKey = () => {
-      if (!this._popup && this.currentLevel < CAMPAIGN_LEVELS.length) {
+      if (!this._popup && !this._saveMenuOpen && this.currentLevel < CAMPAIGN_LEVELS.length) {
         this._openPopup(this.currentLevel);
       }
     };
     this.input.keyboard.on('keydown-ENTER', onConfirmKey);
     this.input.keyboard.on('keydown-SPACE', onConfirmKey);
+    this.input.keyboard.on('keydown-ESC',   () => { if (this._saveMenuOpen) this._closeSaveMenu(); });
   }
 
   // ─── Camera ──────────────────────────────────────────────────────────────────
@@ -194,6 +234,18 @@ export default class CampaignMapScene extends Phaser.Scene {
 
     // Suppress click if it was a drag
     if (dragDist > 5 && !this._popup) return;
+
+    // Save menu takes priority over the map: a click on an item runs it, and any
+    // other click just dismisses the menu (without also opening a level popup).
+    // The icon itself is excluded — its own pointerup handler toggles the menu,
+    // and letting this run too would immediately close what that just opened.
+    if (this._saveMenuOpen) {
+      const item = this._saveMenuRects.find(r =>
+        p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
+      if (item) { this._onSaveMenuSelect(item.key); return; }
+      if (!this._saveIcon.getBounds().contains(p.x, p.y)) this._closeSaveMenu();
+      return;
+    }
 
     if (this._popup) {
       // Difficulty segment click takes priority over the close-on-outside check.
@@ -317,6 +369,100 @@ export default class CampaignMapScene extends Phaser.Scene {
     this._diffTexts.forEach(t => t.setVisible(false));
     this._diffSegments = [];
     this._popupBeginBtn.setVisible(false);
+  }
+
+  // ─── Save files ──────────────────────────────────────────────────────────────
+
+  _toggleSaveMenu() {
+    if (this._saveMenuOpen) this._closeSaveMenu();
+    else                    this._openSaveMenu();
+  }
+
+  // Lay out and draw the dropdown, right-aligned under the disk icon. Item rects
+  // are stored for hit-testing in _onPointerUp.
+  _openSaveMenu() {
+    const ITEM_H = 28, MW = 130;
+    const right  = CANVAS_W - 10;
+    const left   = right - MW;
+    const top    = 36;
+
+    this._saveMenuRects = this._saveMenuItems.map((item, i) => ({
+      key: item.key, x: left, y: top + i * ITEM_H, w: MW, h: ITEM_H,
+    }));
+
+    const MH = ITEM_H * this._saveMenuItems.length;
+    const g  = this._saveMenuGfx;
+    g.clear();
+    g.fillStyle(0x080a14, 0.94);
+    g.fillRoundedRect(left, top, MW, MH, 5);
+    g.lineStyle(1, 0xd4a010, 0.85);
+    g.strokeRoundedRect(left, top, MW, MH, 5);
+
+    this._saveMenuTexts.forEach((t, i) => {
+      t.setText(this._saveMenuItems[i].label)
+       .setPosition(left + 12, top + i * ITEM_H + ITEM_H / 2)
+       .setVisible(true);
+    });
+
+    this._saveMenuOpen = true;
+    this._saveIcon.setAlpha(1);
+  }
+
+  _closeSaveMenu() {
+    this._saveMenuOpen = false;
+    this._saveMenuGfx.clear();
+    this._saveMenuTexts.forEach(t => t.setVisible(false));
+    this._saveMenuRects = [];
+    this._saveIcon.setAlpha(0.65);
+  }
+
+  _onSaveMenuSelect(key) {
+    this._closeSaveMenu();
+    if (key === 'export') this._exportSave();
+    else if (key === 'import') this._importSave();
+  }
+
+  // Show a short-lived status line under the save buttons. Any pending fade is
+  // cancelled first so rapid clicks don't leave a stale message on screen.
+  _flashSaveMsg(text, color = '#e8d8a0') {
+    this._saveMsgTimer?.remove();
+    this._saveMsg.setText(text).setColor(color).setVisible(true);
+    this._saveMsgTimer = this.time.delayedCall(2600, () => this._saveMsg.setVisible(false));
+  }
+
+  _currentProgress() {
+    return {
+      currentLevel:  this.currentLevel,
+      campaignScore: this.campaignScore,
+      difficulty:    this._selectedDifficulty,
+    };
+  }
+
+  _exportSave() {
+    exportProgressFile(this._currentProgress());
+    this._flashSaveMsg('Save exported.');
+  }
+
+  _importSave() {
+    pickProgressFile(CAMPAIGN_LEVELS.length - 1).then((state) => {
+      if (!state) return; // dialog dismissed without picking a file
+      // Importing discards whatever progress is currently stored, so confirm
+      // first. Native confirm() matches the native file picker this follows.
+      const human = state.currentLevel + 1; // levels are 0-based in code, 1-based to players
+      if (!window.confirm(`Load this save (Level ${human}, score ${state.campaignScore})? This replaces your current progress.`)) return;
+      // Mirror the imported save into localStorage before restarting, so the
+      // loaded progress becomes the new autosave rather than being lost on the
+      // next refresh. Restarting with explicit data re-seeds the whole scene.
+      saveProgress(state);
+      this.scene.restart({
+        currentLevel:       state.currentLevel,
+        campaignScore:      state.campaignScore,
+        justCompletedLevel: -1,
+        reveal:             false,
+      });
+    }, (err) => {
+      this._flashSaveMsg(err.message ?? 'Could not read that file.', '#ff8080');
+    });
   }
 
   _beginLevel() {
