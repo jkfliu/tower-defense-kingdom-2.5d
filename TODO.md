@@ -4,7 +4,7 @@
 - [ ] Add additional levels (Level 3 onwards)
 - [ ] Multi-path — add secondary path waypoints for Mudflats & Stoneback Ridge (engine + editor done)
 - [ ] Editor: "add new path" action — currently new paths are added by hand in `src/data/levels.js`; editor can only edit/move/insert/delete on existing paths.
-- [ ] Promote difficulty from per-level (current) to a single campaign-wide setting that cascades to all levels
+- [ ] Promote difficulty from per-level (current) to a single campaign-wide setting that cascades to all levels — save payload already carries `difficulty`, so no save migration needed
 - [ ] Add Veteran difficulty + per-difficulty stat scaling (HP/count/gold) — config in `src/logic/difficulty.js` is structured for it
 
 ## Turrets
@@ -61,6 +61,11 @@
 - [x] Set up DEV_MODE flag enabled at run-time for easier debugging
 - [x] Refactored pop-up screens, enabled FocusGroup keyboard navigation (Enter/Space confirm, Left/Right/Tab cycle, Escape dismiss)
 - [x] Keyboard nav on Campaign map Begin popup, Restart confirm, Sell popup, Game Over overlay
+
+### Save / Load
+- [x] Campaign progress persisted to localStorage — autosaved when a level ends, restored on page load
+- [x] Export / Import save files (JSON) for moving progress between browsers/devices — 💾 dropdown next to the map's `?` button
+- [x] Versioned save payload (`SAVE_VERSION`) — mismatched or corrupt saves fall back to a fresh game rather than half-loading
 
 ### Code quality
 - [x] Level-index getter refactor — closed the `_playingLevel`-vs-`_frontierLevel` bug class
